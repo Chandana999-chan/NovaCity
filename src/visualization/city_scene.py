@@ -1,15 +1,15 @@
+import math
 import random
 import pydeck as pdk
-
-# ---------------------------------------------------------
-# NOVACITY 3D SCENE ENGINE
-# ---------------------------------------------------------
 
 CENTER_LAT = 12.963
 CENTER_LON = 77.585
 
 random.seed(42)
 
+# --------------------------------------------------
+# GEO COORDINATES
+# --------------------------------------------------
 
 def geo(x, y):
     return [
@@ -18,216 +18,167 @@ def geo(x, y):
     ]
 
 
-# ---------------------------------------------------------
-# BUILDING GENERATOR
-# ---------------------------------------------------------
+# --------------------------------------------------
+# BUILDINGS
+# --------------------------------------------------
 
 def generate_buildings():
 
     buildings = []
 
-    building_types = [
-        "Residential",
+    types = [
         "Residential",
         "Commercial",
-        "Office",
-        "Mixed Use",
+        "Office Tower",
+        "Hotel",
         "Industrial",
-        "Hotel"
+        "Shopping Complex"
     ]
 
-    for bx in range(10):
-        for by in range(10):
+    colors = {
+        "Residential": [35, 115, 165, 240],
+        "Commercial": [20, 190, 210, 245],
+        "Office Tower": [100, 125, 255, 245],
+        "Hotel": [190, 90, 220, 245],
+        "Industrial": [210, 145, 75, 245],
+        "Shopping Complex": [40, 205, 165, 245]
+    }
 
-            # Multiple buildings in each city block
-            count = random.randint(3, 6)
+    for x in range(10):
+        for y in range(10):
 
-            for _ in range(count):
+            for _ in range(random.randint(3, 5)):
 
-                x = bx + random.uniform(0.12, 0.83)
-                y = by + random.uniform(0.12, 0.83)
+                bx = x + random.uniform(0.12, 0.80)
+                by = y + random.uniform(0.12, 0.80)
 
-                width = random.uniform(0.12, 0.30)
-                depth = random.uniform(0.12, 0.30)
+                width = random.uniform(0.10, 0.24)
+                depth = random.uniform(0.10, 0.24)
 
-                lon, lat = geo(x, y)
+                lon, lat = geo(bx, by)
+
+                kind = random.choice(types)
+                floors = random.randint(4, 38)
 
                 polygon = [
-                    [lon - width * 0.00065, lat - depth * 0.00065],
-                    [lon + width * 0.00065, lat - depth * 0.00065],
-                    [lon + width * 0.00065, lat + depth * 0.00065],
-                    [lon - width * 0.00065, lat + depth * 0.00065]
+                    geo(bx - width / 2, by - depth / 2),
+                    geo(bx + width / 2, by - depth / 2),
+                    geo(bx + width / 2, by + depth / 2),
+                    geo(bx - width / 2, by + depth / 2)
                 ]
 
-                kind = random.choice(building_types)
-
-                floors = random.randint(3, 35)
-
-                height = floors * 3.5
-
-                if kind == "Office":
-                    color = [42, 135, 185, 245]
-
-                elif kind == "Commercial":
-                    color = [40, 165, 190, 245]
-
-                elif kind == "Industrial":
-                    color = [160, 120, 95, 245]
-
-                elif kind == "Hotel":
-                    color = [130, 100, 190, 245]
-
-                elif kind == "Mixed Use":
-                    color = [70, 125, 155, 245]
-
-                else:
-                    color = [45, 90, 125, 240]
-
                 buildings.append({
-                    "name": f"{kind} Building",
+                    "name": kind + " " + str(len(buildings) + 1),
                     "type": kind,
-                    "height": height,
                     "floors": floors,
+                    "height": floors * 3.5,
                     "polygon": polygon,
-                    "color": color
+                    "color": colors[kind]
                 })
 
     return buildings
 
 
-# ---------------------------------------------------------
-# ROAD GENERATOR
-# ---------------------------------------------------------
+# --------------------------------------------------
+# ROAD NETWORK
+# --------------------------------------------------
 
 def generate_roads():
 
     roads = []
 
-    # Main horizontal and vertical roads
+    # Main roads
     for i in range(11):
 
-        # Horizontal roads
-        path = [
-            geo(0, i),
-            geo(10, i)
-        ]
-
         roads.append({
-            "name": f"Main Avenue {i + 1}",
+            "name": f"North Avenue {i}",
             "type": "Primary",
-            "path": path,
-            "width": 13,
-            "status": "Free Flow",
-            "congestion": random.randint(10, 35)
+            "path": [geo(0, i), geo(10, i)],
+            "width": 15
         })
 
-        # Vertical roads
-        path = [
-            geo(i, 0),
-            geo(i, 10)
-        ]
-
         roads.append({
-            "name": f"Central Boulevard {i + 1}",
+            "name": f"Central Boulevard {i}",
             "type": "Primary",
-            "path": path,
-            "width": 13,
-            "status": "Free Flow",
-            "congestion": random.randint(10, 35)
+            "path": [geo(i, 0), geo(i, 10)],
+            "width": 15
         })
 
-    # Secondary streets
+    # Secondary roads
     for x in range(10):
-
         for y in range(10):
 
-            if x < 9:
+            roads.append({
+                "name": f"Street {x}-{y}",
+                "type": "Secondary",
+                "path": [
+                    geo(x + 0.5, y + 0.5),
+                    geo(x + 1, y + 0.5)
+                ],
+                "width": 7
+            })
 
-                roads.append({
-                    "name": f"Street {x}-{y}",
-                    "type": "Secondary",
-                    "path": [
-                        geo(x + 0.5, y + 0.5),
-                        geo(x + 1.5, y + 0.5)
-                    ],
-                    "width": 5,
-                    "status": "Moderate",
-                    "congestion": random.randint(25, 60)
-                })
-
-            if y < 9:
-
-                roads.append({
-                    "name": f"Lane {x}-{y}",
-                    "type": "Secondary",
-                    "path": [
-                        geo(x + 0.5, y + 0.5),
-                        geo(x + 0.5, y + 1.5)
-                    ],
-                    "width": 5,
-                    "status": "Moderate",
-                    "congestion": random.randint(25, 60)
-                })
+            roads.append({
+                "name": f"Lane {x}-{y}",
+                "type": "Secondary",
+                "path": [
+                    geo(x + 0.5, y + 0.5),
+                    geo(x + 0.5, y + 1)
+                ],
+                "width": 7
+            })
 
     return roads
 
 
-# ---------------------------------------------------------
-# FACILITY GENERATOR
-# ---------------------------------------------------------
+# --------------------------------------------------
+# FACILITIES
+# --------------------------------------------------
 
 def generate_facilities():
 
-    facilities = [
-
+    items = [
         ("Nova General Hospital", "Hospital", 2, 2),
         ("City Medical Centre", "Hospital", 8, 7),
-
         ("Central School", "School", 3, 6),
         ("Nova University", "School", 7, 3),
-
-        ("Central Bus Terminal", "Transport", 5, 5),
-        ("Metro Interchange", "Transport", 8, 5),
-
+        ("Central Bus Terminal", "Bus Station", 5, 5),
+        ("Metro Interchange", "Metro", 8, 5),
         ("Police Headquarters", "Police", 1, 8),
-        ("Fire and Rescue Centre", "Fire", 8, 1),
-
+        ("Fire and Rescue Centre", "Fire Station", 8, 1),
         ("Municipal Corporation", "Government", 4, 8),
-        ("Industrial Research Park", "Industrial", 9, 9),
-
-        ("Central Shopping Mall", "Commercial", 5, 2),
-        ("Convention Centre", "Commercial", 3, 8)
+        ("Central Shopping Mall", "Mall", 5, 2)
     ]
+
+    colors = {
+        "Hospital": [255, 55, 95, 255],
+        "School": [180, 110, 255, 255],
+        "Bus Station": [255, 190, 40, 255],
+        "Metro": [40, 210, 240, 255],
+        "Police": [60, 145, 255, 255],
+        "Fire Station": [255, 85, 45, 255],
+        "Government": [40, 220, 180, 255],
+        "Mall": [240, 100, 210, 255]
+    }
 
     result = []
 
-    colors = {
-        "Hospital": [255, 60, 95, 255],
-        "School": [170, 120, 255, 255],
-        "Transport": [255, 195, 65, 255],
-        "Police": [70, 155, 255, 255],
-        "Fire": [255, 100, 55, 255],
-        "Government": [70, 220, 205, 255],
-        "Industrial": [200, 150, 95, 255],
-        "Commercial": [255, 125, 205, 255]
-    }
-
-    for name, kind, x, y in facilities:
+    for name, kind, x, y in items:
 
         result.append({
             "name": name,
             "type": kind,
             "position": geo(x, y),
-            "height": random.randint(25, 60),
+            "height": 45,
             "color": colors[kind]
         })
 
     return result
 
 
-# ---------------------------------------------------------
-# PARKS AND GREEN SPACES
-# ---------------------------------------------------------
+# --------------------------------------------------
+# PARKS
+# --------------------------------------------------
 
 def generate_parks():
 
@@ -235,69 +186,220 @@ def generate_parks():
 
     for x, y in [(1, 4), (5, 8), (8, 4), (3, 1)]:
 
-        lon, lat = geo(x, y)
-
         parks.append({
-            "name": "Urban Green Park",
+            "name": "Nova Green Park",
             "polygon": [
-                [lon - 0.0002, lat - 0.0002],
-                [lon + 0.0002, lat - 0.0002],
-                [lon + 0.0002, lat + 0.0002],
-                [lon - 0.0002, lat + 0.0002]
+                geo(x, y),
+                geo(x + 0.8, y),
+                geo(x + 0.8, y + 0.8),
+                geo(x, y + 0.8)
             ]
         })
 
     return parks
 
 
-# ---------------------------------------------------------
-# DEMO CITY STATE
-# ---------------------------------------------------------
+# --------------------------------------------------
+# TRAFFIC SIGNALS
+# --------------------------------------------------
 
-def create_demo_city():
+def generate_signals():
+
+    signals = []
+
+    for x in range(1, 10):
+        for y in range(1, 10):
+
+            if x % 2 == 0 and y % 2 == 0:
+
+                signals.append({
+                    "name": f"Signal {x}-{y}",
+                    "position": geo(x, y),
+                    "phase": (x + y) % 3
+                })
+
+    return signals
+
+
+# --------------------------------------------------
+# CITY INITIALIZATION
+# --------------------------------------------------
+
+def create_city():
 
     return {
         "buildings": generate_buildings(),
         "roads": generate_roads(),
         "facilities": generate_facilities(),
         "parks": generate_parks(),
-        "vehicles": [],
-        "population": 126500
+        "signals": generate_signals()
     }
 
 
-# ---------------------------------------------------------
-# COLOUR MAPPING
-# ---------------------------------------------------------
+# --------------------------------------------------
+# INTERPOLATION
+# --------------------------------------------------
 
-ROAD_COLORS = {
-    "Free Flow": [35, 220, 150, 255],
-    "Moderate": [40, 175, 255, 255],
-    "Heavy": [255, 180, 45, 255],
-    "Closed": [255, 55, 85, 255]
-}
+def interpolate(a, b, t):
+
+    return [
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t
+    ]
 
 
-# ---------------------------------------------------------
-# 3D SCENE RENDERER
-# ---------------------------------------------------------
+# --------------------------------------------------
+# VEHICLE SIMULATION
+# --------------------------------------------------
 
-def render_city_scene(city_state):
+def generate_vehicles(city, tick, density, bus_frequency):
+
+    vehicles = []
+
+    primary_roads = [
+        r for r in city["roads"]
+        if r["type"] == "Primary"
+    ]
+
+    count = int(density * 1.5)
+
+    for i in range(count):
+
+        road = primary_roads[i % len(primary_roads)]
+
+        path = road["path"]
+
+        # Cycle through road path
+        phase = (tick * 0.012 + i * 0.11) % 1
+
+        position = interpolate(
+            path[0],
+            path[1],
+            phase
+        )
+
+        kind = "Car"
+        color = [30, 210, 255, 255]
+        radius = 35
+
+        # Introduce buses at configurable frequency
+        if i % max(2, 12 - bus_frequency) == 0:
+
+            kind = "Bus"
+            color = [255, 185, 35, 255]
+            radius = 75
+
+        # Emergency vehicles
+        if i % 23 == 0:
+
+            kind = "Emergency"
+            color = [255, 55, 75, 255]
+            radius = 55
+
+        vehicles.append({
+            "name": f"{kind} {i + 1}",
+            "type": kind,
+            "position": position,
+            "color": color,
+            "radius": radius
+        })
+
+    return vehicles
+
+
+# --------------------------------------------------
+# PEDESTRIAN SIMULATION
+# --------------------------------------------------
+
+def generate_pedestrians(city, tick, population):
+
+    pedestrians = []
+
+    count = population
+
+    for i in range(count):
+
+        # Pedestrians move along horizontal sidewalks
+        lane = i % 10
+        start_x = (i * 0.37) % 10
+
+        movement = (tick * 0.003 + i * 0.07) % 1
+
+        x = (start_x + movement * 2) % 10
+        y = lane + 0.12
+
+        position = geo(x, y)
+
+        pedestrians.append({
+            "name": f"Pedestrian {i + 1}",
+            "position": position,
+            "color": [190, 110, 255, 255],
+            "radius": 15
+        })
+
+    return pedestrians
+
+
+# --------------------------------------------------
+# TRAFFIC LIGHT STATES
+# --------------------------------------------------
+
+def update_signals(city, tick, signal_duration):
+
+    result = []
+
+    for signal in city["signals"]:
+
+        phase = int(
+            (tick // max(1, signal_duration) + signal["phase"]) % 3
+        )
+
+        if phase == 0:
+            state = "GREEN"
+            color = [20, 255, 100, 255]
+
+        elif phase == 1:
+            state = "YELLOW"
+            color = [255, 210, 20, 255]
+
+        else:
+            state = "RED"
+            color = [255, 40, 65, 255]
+
+        result.append({
+            **signal,
+            "state": state,
+            "color": color
+        })
+
+    return result
+
+
+# --------------------------------------------------
+# 3D MAP
+# --------------------------------------------------
+
+def render_city(
+    city,
+    vehicles,
+    pedestrians,
+    signals,
+    bearing=0,
+    pitch=65,
+    zoom=14.5
+):
 
     layers = []
 
-    # BUILDINGS
-
-    building_data = city_state["buildings"]
-
+    # Building geometry
     layers.append(
         pdk.Layer(
             "PolygonLayer",
-            building_data,
+            city["buildings"],
             get_polygon="polygon",
             get_elevation="height",
             get_fill_color="color",
-            get_line_color=[100, 200, 245, 180],
+            get_line_color=[110, 220, 255, 210],
             extruded=True,
             wireframe=True,
             elevation_scale=1,
@@ -306,95 +408,125 @@ def render_city_scene(city_state):
         )
     )
 
-    # PARKS
-
+    # Green spaces
     layers.append(
         pdk.Layer(
             "PolygonLayer",
-            city_state["parks"],
+            city["parks"],
             get_polygon="polygon",
-            get_fill_color=[30, 130, 90, 210],
-            get_line_color=[80, 230, 150, 230],
+            get_fill_color=[20, 115, 75, 230],
+            get_line_color=[50, 255, 160, 255],
             extruded=False,
             pickable=True
         )
     )
 
-    # ROADS
-
-    road_data = []
-
-    for road in city_state["roads"]:
-
-        item = dict(road)
-
-        item["color"] = ROAD_COLORS.get(
-            road["status"],
-            ROAD_COLORS["Moderate"]
-        )
-
-        road_data.append(item)
-
+    # Road surfaces - dark thick lines
     layers.append(
         pdk.Layer(
             "PathLayer",
-            road_data,
+            city["roads"],
             get_path="path",
-            get_color="color",
+            get_color=[15, 25, 38, 255],
             get_width="width",
-            width_min_pixels=2,
-            width_max_pixels=12,
-            pickable=True,
-            cap_rounded=True,
-            joint_rounded=True
+            width_min_pixels=5,
+            width_max_pixels=22,
+            pickable=True
         )
     )
 
-    # LANDMARKS
+    # Road neon edge / traffic lanes
+    layers.append(
+        pdk.Layer(
+            "PathLayer",
+            city["roads"],
+            get_path="path",
+            get_color=[65, 165, 205, 210],
+            get_width=2,
+            width_min_pixels=2,
+            width_max_pixels=3
+        )
+    )
 
+    # Lane markings
+    layers.append(
+        pdk.Layer(
+            "PathLayer",
+            city["roads"],
+            get_path="path",
+            get_color=[230, 240, 255, 180],
+            get_width=1,
+            width_min_pixels=1,
+            width_max_pixels=2
+        )
+    )
+
+    # Facilities
     layers.append(
         pdk.Layer(
             "ColumnLayer",
-            city_state["facilities"],
+            city["facilities"],
             get_position="position",
             get_elevation="height",
             get_fill_color="color",
-            radius=65,
-            elevation_scale=2,
+            radius=55,
+            elevation_scale=1,
             extruded=True,
-            pickable=True,
-            auto_highlight=True
+            pickable=True
         )
     )
 
-    # VEHICLES
-
-    if city_state.get("vehicles"):
-
-        layers.append(
-            pdk.Layer(
-                "ScatterplotLayer",
-                city_state["vehicles"],
-                get_position="position",
-                get_fill_color="color",
-                get_radius=25,
-                radius_min_pixels=4,
-                radius_max_pixels=10,
-                pickable=True
-            )
+    # Traffic lights
+    layers.append(
+        pdk.Layer(
+            "ScatterplotLayer",
+            signals,
+            get_position="position",
+            get_fill_color="color",
+            get_radius=40,
+            radius_min_pixels=6,
+            radius_max_pixels=14,
+            pickable=True
         )
+    )
 
-    # CAMERA
+    # Vehicles
+    layers.append(
+        pdk.Layer(
+            "ScatterplotLayer",
+            vehicles,
+            get_position="position",
+            get_fill_color="color",
+            get_radius="radius",
+            radius_min_pixels=4,
+            radius_max_pixels=13,
+            pickable=True
+        )
+    )
+
+    # Pedestrians
+    layers.append(
+        pdk.Layer(
+            "ScatterplotLayer",
+            pedestrians,
+            get_position="position",
+            get_fill_color="color",
+            get_radius="radius",
+            radius_min_pixels=2,
+            radius_max_pixels=6,
+            pickable=True
+        )
+    )
 
     view = pdk.ViewState(
         latitude=CENTER_LAT + 0.003,
         longitude=CENTER_LON + 0.003,
-        zoom=14.2,
-        pitch=60,
-        bearing=-20
+        zoom=zoom,
+        pitch=pitch,
+        bearing=bearing
     )
 
-    deck = pdk.Deck(
+    return pdk.Deck(
         layers=layers,
         initial_view_state=view,
         map_style=(
@@ -403,21 +535,13 @@ def render_city_scene(city_state):
         ),
         tooltip={
             "html": """
-                <div style="padding:10px">
-                    <b>{name}</b><br/>
-                    Type: {type}<br/>
-                    Floors: {floors}<br/>
-                    Height: {height} m<br/>
-                    Status: {status}<br/>
-                    Congestion: {congestion}%
-                </div>
+                <b>{name}</b><br/>
+                Type: {type}<br/>
+                State: {state}
             """,
             "style": {
-                "backgroundColor": "#0b2035",
-                "color": "#ffffff",
-                "border": "1px solid #38bdf8"
+                "backgroundColor": "#071b30",
+                "color": "white"
             }
         }
     )
-
-    return deck

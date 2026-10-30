@@ -1,22 +1,26 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
+
+from streamlit_autorefresh import st_autorefresh
 
 from src.visualization.city_scene import (
-    create_demo_city,
-    render_city_scene
+    create_city,
+    generate_vehicles,
+    generate_pedestrians,
+    update_signals,
+    render_city
 )
 
 st.set_page_config(
-    page_title="NovaCity | Urban Intelligence",
+    page_title="NovaCity | 3D Digital Twin",
     page_icon="🏙️",
     layout="wide"
 )
 
-# ---------------------------------------------------------
-# DESIGN SYSTEM
-# ---------------------------------------------------------
+# --------------------------------------------------
+# GLASSMORPHISM THEME
+# --------------------------------------------------
 
 st.markdown("""
 <style>
@@ -29,558 +33,609 @@ st.markdown("""
 
 .stApp {
     background:
-      radial-gradient(ellipse at 48% 0%, #173d59 0%, transparent 48%),
-      linear-gradient(130deg, #050d18, #091a2a 55%, #071321);
-    color: #edf7ff;
+      radial-gradient(ellipse at 50% 0%, #143c59 0%, transparent 50%),
+      linear-gradient(135deg,#030914,#081827,#071322);
+    color: white;
 }
 
 .block-container {
     max-width: 1900px;
-    padding: 1rem 1.5rem;
+    padding-top: 1rem;
 }
 
 [data-testid="stSidebar"] {
-    background: rgba(5, 18, 32, .97);
-    border-right: 1px solid rgba(80,190,230,.2);
+    background: rgba(4,15,29,.97);
+    border-right: 1px solid rgba(50,200,255,.25);
 }
 
 [data-testid="stMetric"] {
-    background: linear-gradient(145deg,
-      rgba(28,70,100,.75),
-      rgba(8,24,42,.92));
-    border: 1px solid rgba(100,190,240,.23);
-    padding: 16px;
+    background: linear-gradient(140deg,
+        rgba(25,80,115,.65),
+        rgba(8,24,42,.85));
+    border: 1px solid rgba(65,205,255,.22);
+    padding: 15px;
     border-radius: 15px;
-    box-shadow: 0 10px 30px rgba(0,0,0,.25);
-}
-
-[data-testid="stMetricLabel"] {
-    color: #91b2ca;
-    font-size: 11px;
-    font-weight: 600;
+    box-shadow: 0 8px 30px rgba(0,0,0,.25);
 }
 
 [data-testid="stMetricValue"] {
-    color: #ffffff;
-    font-size: 25px;
+    color: #5ce7ff;
     font-weight: 800;
 }
 
 .glass {
     background: linear-gradient(
         145deg,
-        rgba(25,65,95,.72),
-        rgba(8,24,42,.85)
+        rgba(35,90,125,.35),
+        rgba(7,22,40,.80)
     );
-    border: 1px solid rgba(95,190,230,.23);
-    border-radius: 17px;
+    border: 1px solid rgba(80,210,255,.23);
+    border-radius: 18px;
     padding: 18px;
+    box-shadow: 0 12px 35px rgba(0,0,0,.3);
     backdrop-filter: blur(18px);
-    box-shadow: 0 12px 35px rgba(0,0,0,.28);
-    margin-bottom: 15px;
 }
 
-.eyebrow {
-    color: #43d3f2;
-    font-size: 10px;
-    letter-spacing: 2px;
+.neon {
+    color: #42dfff;
+    font-size: 11px;
     font-weight: 800;
+    letter-spacing: 2px;
 }
 
 .muted {
-    color: #91aabd;
+    color: #8daec4;
     font-size: 12px;
 }
 
-.status {
-    display: inline-block;
-    padding: 5px 10px;
-    border-radius: 20px;
-    background: rgba(30,210,150,.14);
-    color: #43e5b0;
-    font-size: 11px;
-    border: 1px solid rgba(30,210,150,.25);
-}
-
 h1 {
-    font-weight: 800 !important;
     font-size: 30px !important;
+    font-weight: 800 !important;
 }
 
-h2, h3 {
-    color: #eaf7ff !important;
+h2,h3 {
+    color: #e6f8ff !important;
 }
 
 hr {
-    border-color: rgba(110,180,220,.17);
+    border-color: rgba(70,190,230,.18);
 }
 
 .stButton button {
-    background: linear-gradient(100deg,#12516e,#087e9a);
+    background: linear-gradient(100deg,#086486,#087eaa);
     color: white;
-    border: 1px solid #299bb9;
+    border: 1px solid #32c9f5;
     border-radius: 9px;
-    font-weight: 600;
+    font-weight: 700;
 }
 
 </style>
 """, unsafe_allow_html=True)
 
 
-# ---------------------------------------------------------
-# INITIALIZE CITY
-# ---------------------------------------------------------
+# --------------------------------------------------
+# SESSION STATE
+# --------------------------------------------------
 
-if "city_state" not in st.session_state:
+if "city" not in st.session_state:
+    st.session_state.city = create_city()
 
-    st.session_state.city_state = create_demo_city()
+if "tick" not in st.session_state:
+    st.session_state.tick = 0
 
-city = st.session_state.city_state
+if "running" not in st.session_state:
+    st.session_state.running = False
+
+if "closed_roads" not in st.session_state:
+    st.session_state.closed_roads = []
 
 
-# ---------------------------------------------------------
+city = st.session_state.city
+
+
+# --------------------------------------------------
 # SIDEBAR
-# ---------------------------------------------------------
+# --------------------------------------------------
 
 with st.sidebar:
 
     st.markdown("# 🏙 NOVACITY")
 
     st.markdown(
-        '<div class="eyebrow">URBAN DIGITAL TWIN</div>',
+        '<div class="neon">URBAN DIGITAL TWIN</div>',
         unsafe_allow_html=True
     )
 
-    st.markdown(
-        '<span class="status">● SYSTEM ONLINE</span>',
-        unsafe_allow_html=True
-    )
-
-    st.divider()
+    st.success("● CITY SYSTEM ONLINE")
 
     page = st.radio(
-        "NAVIGATION",
+        "CITY MODULES",
         [
             "Overview",
-            "3D City",
-            "Mobility",
+            "3D City Explorer",
+            "Traffic Simulation",
+            "Pedestrian Simulation",
+            "Traffic Signals",
             "Infrastructure",
-            "Facilities",
-            "Emergency",
-            "Environment",
             "Analytics"
         ]
     )
 
     st.divider()
 
-    st.markdown("### CITY INFORMATION")
+    st.markdown("### SIMULATION CONTROLS")
 
-    st.metric("Population", "126.5K")
-    st.metric("Buildings", len(city["buildings"]))
-    st.metric("Road Segments", len(city["roads"]))
-    st.metric("Facilities", len(city["facilities"]))
+    density = st.slider(
+        "Vehicle Density",
+        0, 100, 55
+    )
+
+    pedestrian_count = st.slider(
+        "Pedestrian Population",
+        0, 100, 35
+    )
+
+    bus_frequency = st.slider(
+        "Bus Frequency",
+        0, 10, 5
+    )
+
+    signal_duration = st.slider(
+        "Signal Duration",
+        2, 30, 10
+    )
+
+    speed = st.slider(
+        "Simulation Speed",
+        1, 10, 3
+    )
+
+    pitch = st.slider(
+        "3D Camera Tilt",
+        0, 85, 65
+    )
+
+    bearing = st.slider(
+        "360° Camera Rotation",
+        0, 359, 0
+    )
+
+    zoom = st.slider(
+        "Camera Zoom",
+        12.0, 18.0, 14.5
+    )
 
     st.divider()
 
-    if st.button("Regenerate City", use_container_width=True):
+    if st.button("▶ START SIMULATION", use_container_width=True):
+        st.session_state.running = True
 
-        st.session_state.city_state = create_demo_city()
+    if st.button("⏸ PAUSE SIMULATION", use_container_width=True):
+        st.session_state.running = False
+
+    if st.button("↻ RESET CITY", use_container_width=True):
+        st.session_state.tick = 0
+        st.session_state.city = create_city()
+        st.session_state.closed_roads = []
         st.rerun()
 
-    st.caption("NovaCity · Simulation-ready visualization")
+
+# --------------------------------------------------
+# SIMULATION CLOCK
+# --------------------------------------------------
+
+if st.session_state.running:
+
+    st_autorefresh(
+        interval=max(100, 1000 // speed),
+        key="city_refresh"
+    )
+
+    st.session_state.tick += 1
 
 
-# ---------------------------------------------------------
-# COMMON COMPONENTS
-# ---------------------------------------------------------
+tick = st.session_state.tick
 
-def header(title, description):
+
+# --------------------------------------------------
+# GENERATE MOVING ENTITIES
+# --------------------------------------------------
+
+vehicles = generate_vehicles(
+    city,
+    tick,
+    density,
+    bus_frequency
+)
+
+pedestrians = generate_pedestrians(
+    city,
+    tick,
+    pedestrian_count
+)
+
+signals = update_signals(
+    city,
+    tick,
+    signal_duration
+)
+
+
+# --------------------------------------------------
+# APPLY ROAD CLOSURES
+# --------------------------------------------------
+
+for road in city["roads"]:
+
+    if road["name"] in st.session_state.closed_roads:
+        road["width"] = 15
+
+
+# --------------------------------------------------
+# COMMON FUNCTIONS
+# --------------------------------------------------
+
+def header(title, subtitle):
 
     st.markdown(f"# {title}")
 
     st.markdown(
-        f'<div class="muted">{description}</div>',
+        f'<div class="muted">{subtitle}</div>',
         unsafe_allow_html=True
     )
 
     st.divider()
 
 
-def city_map(height=650):
+def show_map(height=700):
 
-    scene = render_city_scene(city)
+    deck = render_city(
+        city,
+        vehicles,
+        pedestrians,
+        signals,
+        bearing=bearing,
+        pitch=pitch,
+        zoom=zoom
+    )
 
     st.pydeck_chart(
-        scene,
+        deck,
         height=height,
         width="stretch"
     )
 
 
-def glass(title, content):
-
-    st.markdown(
-        f"""
-        <div class="glass">
-            <div class="eyebrow">{title}</div>
-            <br/>
-            {content}
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-def chart_bar(title, data, x, y):
-
-    fig = px.bar(
-        data,
-        x=x,
-        y=y,
-        title=title,
-        template="plotly_dark",
-        color_discrete_sequence=["#37c8ed"]
-    )
-
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#dcecf7",
-        height=310
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-
-
-# ---------------------------------------------------------
-# PAGE 1: OVERVIEW
-# ---------------------------------------------------------
+# --------------------------------------------------
+# OVERVIEW
+# --------------------------------------------------
 
 if page == "Overview":
 
     header(
-        "City Intelligence Command Center",
-        "Real-time urban visualization and infrastructure monitoring"
+        "NOVACITY COMMAND CENTER",
+        "Interactive urban digital twin and intelligent city simulation"
     )
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    a,b,c,d,e = st.columns(5)
 
-    c1.metric("Population", "126,500", "+2.4%")
-    c2.metric("Buildings", len(city["buildings"]))
-    c3.metric("Road Segments", len(city["roads"]))
-    c4.metric("Facilities", len(city["facilities"]))
-    c5.metric("Green Spaces", len(city["parks"]))
+    a.metric("Population", "126,500")
+    b.metric("Buildings", len(city["buildings"]))
+    c.metric("Vehicles", len(vehicles))
+    d.metric("Pedestrians", len(pedestrians))
+    e.metric("Traffic Signals", len(signals))
 
-    left, right = st.columns([3.5, 1.1])
+    left, right = st.columns([3.5, 1])
 
     with left:
 
-        glass(
-            "LIVE 3D CITY MODEL",
-            "Urban landscape · Building geometry · Road infrastructure"
+        st.markdown(
+            '<div class="glass"><div class="neon">LIVE 3D CITY ENVIRONMENT</div></div>',
+            unsafe_allow_html=True
         )
 
-        city_map(650)
+        show_map(720)
 
     with right:
 
-        glass(
-            "CITY STATUS",
+        st.markdown("### CITY STATUS")
+
+        st.markdown(
             """
-            <h2 style="color:#42e7b2">OPERATIONAL</h2>
-            <p class="muted">All visualization modules active.</p>
-            <hr/>
-            <p>🟢 Road network</p>
-            <p>🟢 Building registry</p>
-            <p>🟢 Public facilities</p>
-            <p>🟢 Urban districts</p>
-            <p>🟢 3D rendering</p>
-            """
+            <div class="glass">
+                <h3 style="color:#39e8ae">OPERATIONAL</h3>
+                <p>🟢 Road network</p>
+                <p>🟢 Building infrastructure</p>
+                <p>🟢 Vehicle simulation</p>
+                <p>🟢 Pedestrian simulation</p>
+                <p>🟢 Traffic signals</p>
+                <p>🟢 Public facilities</p>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-        glass(
-            "CITY DISTRICTS",
-            """
-            <h3>10 Urban Zones</h3>
-            <p class="muted">Residential · Commercial · Industrial · Central</p>
-            """
+        st.markdown("### SIMULATION")
+
+        st.metric("Simulation Tick", tick)
+
+        st.metric(
+            "Simulation Status",
+            "RUNNING" if st.session_state.running else "PAUSED"
         )
 
-        glass(
-            "INFRASTRUCTURE",
-            """
-            <h3>12 Key Facilities</h3>
-            <p class="muted">Hospitals · Schools · Transport · Emergency services</p>
-            """
-        )
+    st.markdown("## City Composition")
 
-    st.markdown("## Urban Intelligence")
+    buildings = pd.DataFrame(city["buildings"])
 
-    a, b = st.columns(2)
-
-    with a:
-
-        building_df = pd.DataFrame(city["buildings"])
-
-        chart_bar(
-            "Building Distribution",
-            building_df.groupby("type").size().reset_index(name="count"),
-            "type",
-            "count"
-        )
-
-    with b:
-
-        road_df = pd.DataFrame(city["roads"])
-
-        chart_bar(
-            "Road Infrastructure",
-            road_df.groupby("type").size().reset_index(name="count"),
-            "type",
-            "count"
-        )
-
-
-# ---------------------------------------------------------
-# PAGE 2: 3D CITY
-# ---------------------------------------------------------
-
-elif page == "3D City":
-
-    header(
-        "NovaCity 3D Explorer",
-        "Explore building density, roads, landmarks and urban geometry"
+    fig = px.pie(
+        buildings,
+        names="type",
+        hole=.55,
+        template="plotly_dark",
+        title="Building Distribution"
     )
 
-    city_map(760)
+    st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("## Building Registry")
 
-    building_df = pd.DataFrame(city["buildings"])
+# --------------------------------------------------
+# 3D CITY EXPLORER
+# --------------------------------------------------
+
+elif page == "3D City Explorer":
+
+    header(
+        "360° CITY EXPLORER",
+        "Rotate, tilt and explore the entire fictional city"
+    )
+
+    st.info(
+        "Drag the 3D map to rotate. Use the mouse wheel to zoom. "
+        "Use the camera controls in the sidebar for precise positioning."
+    )
+
+    show_map(800)
+
+    buildings = pd.DataFrame(city["buildings"])
+
+    st.markdown("## Building Inventory")
 
     st.dataframe(
-        building_df[["name", "type", "floors", "height"]],
-        use_container_width=True,
+        buildings[["name", "type", "floors", "height"]],
+        width="stretch",
         hide_index=True
     )
 
 
-# ---------------------------------------------------------
-# PAGE 3: MOBILITY
-# ---------------------------------------------------------
+# --------------------------------------------------
+# TRAFFIC SIMULATION
+# --------------------------------------------------
 
-elif page == "Mobility":
+elif page == "Traffic Simulation":
 
     header(
-        "Mobility and Traffic Intelligence",
-        "Road infrastructure and transport network visualization"
+        "INTELLIGENT TRAFFIC CONTROL",
+        "Simulated cars, buses and emergency vehicle movement"
     )
 
-    city_map(620)
+    a,b,c = st.columns(3)
 
-    roads = pd.DataFrame(city["roads"])
+    a.metric("Total Vehicles", len(vehicles))
 
-    a, b, c = st.columns(3)
+    a_bus = sum(v["type"] == "Bus" for v in vehicles)
+    a_emergency = sum(v["type"] == "Emergency" for v in vehicles)
 
-    a.metric("Primary Roads", len(roads[roads["type"] == "Primary"]))
-    b.metric("Secondary Roads", len(roads[roads["type"] == "Secondary"]))
-    c.metric("Total Segments", len(roads))
+    b.metric("Buses", a_bus)
+    c.metric("Emergency Vehicles", a_emergency)
 
-    st.markdown("## Road Registry")
+    show_map(720)
+
+    st.markdown("## Road Incident Controls")
+
+    road_names = [r["name"] for r in city["roads"]]
+
+    selected = st.selectbox(
+        "Select a road",
+        road_names
+    )
+
+    col1,col2 = st.columns(2)
+
+    with col1:
+
+        if st.button("🚧 Close Selected Road"):
+
+            if selected not in st.session_state.closed_roads:
+                st.session_state.closed_roads.append(selected)
+
+            st.rerun()
+
+    with col2:
+
+        if st.button("🟢 Reopen Selected Road"):
+
+            if selected in st.session_state.closed_roads:
+                st.session_state.closed_roads.remove(selected)
+
+            st.rerun()
+
+    st.write("Closed roads:", st.session_state.closed_roads)
+
+
+# --------------------------------------------------
+# PEDESTRIAN SIMULATION
+# --------------------------------------------------
+
+elif page == "Pedestrian Simulation":
+
+    header(
+        "PEDESTRIAN MOVEMENT SYSTEM",
+        "Pedestrian movement across city sidewalks and urban routes"
+    )
+
+    a,b = st.columns(2)
+
+    a.metric("Active Pedestrians", len(pedestrians))
+    b.metric("Simulation Tick", tick)
+
+    show_map(720)
+
+    st.info(
+        "Pedestrians currently follow simulated walking paths. "
+        "Signal-aware crossing and collision avoidance are future "
+        "integration tasks for the simulation engine."
+    )
+
+
+# --------------------------------------------------
+# TRAFFIC SIGNALS
+# --------------------------------------------------
+
+elif page == "Traffic Signals":
+
+    header(
+        "SMART TRAFFIC SIGNAL NETWORK",
+        "Traffic light states and intersection management"
+    )
+
+    a,b,c = st.columns(3)
+
+    a.metric(
+        "Green Signals",
+        sum(s["state"] == "GREEN" for s in signals)
+    )
+
+    b.metric(
+        "Yellow Signals",
+        sum(s["state"] == "YELLOW" for s in signals)
+    )
+
+    c.metric(
+        "Red Signals",
+        sum(s["state"] == "RED" for s in signals)
+    )
+
+    show_map(720)
+
+    st.markdown("## Signal Registry")
 
     st.dataframe(
-        roads[["name", "type", "status", "congestion"]],
-        use_container_width=True,
+        pd.DataFrame(signals)[["name", "state"]],
+        width="stretch",
         hide_index=True
     )
 
 
-# ---------------------------------------------------------
-# PAGE 4: INFRASTRUCTURE
-# ---------------------------------------------------------
+# --------------------------------------------------
+# INFRASTRUCTURE
+# --------------------------------------------------
 
 elif page == "Infrastructure":
 
     header(
-        "Urban Infrastructure",
-        "Road assets, buildings and city development"
+        "CITY INFRASTRUCTURE",
+        "Building, hospital, school, transport and emergency services"
     )
 
-    city_map(620)
+    show_map(720)
 
     buildings = pd.DataFrame(city["buildings"])
-
-    st.markdown("## Building Statistics")
-
-    a, b, c = st.columns(3)
-
-    a.metric("Total Buildings", len(buildings))
-    b.metric("Average Floors", round(buildings["floors"].mean(), 1))
-    c.metric("Tallest Building", f'{buildings["height"].max():.0f} m')
-
-    chart_bar(
-        "Building Height by Type",
-        buildings.groupby("type")["height"].mean().reset_index(),
-        "type",
-        "height"
-    )
-
-
-# ---------------------------------------------------------
-# PAGE 5: FACILITIES
-# ---------------------------------------------------------
-
-elif page == "Facilities":
-
-    header(
-        "Public Facilities and Services",
-        "Essential city infrastructure and facility locations"
-    )
-
-    city_map(620)
-
     facilities = pd.DataFrame(city["facilities"])
 
-    a, b, c, d = st.columns(4)
+    a,b,c = st.columns(3)
 
-    a.metric("Hospitals", len(facilities[facilities["type"] == "Hospital"]))
-    b.metric("Schools", len(facilities[facilities["type"] == "School"]))
-    c.metric("Transport", len(facilities[facilities["type"] == "Transport"]))
-    d.metric("Emergency Facilities", len(facilities[
-        facilities["type"].isin(["Police", "Fire"])
-    ]))
+    a.metric("Buildings", len(buildings))
+    b.metric("Facilities", len(facilities))
+    c.metric(
+        "Average Building Height",
+        f'{buildings["height"].mean():.1f} m'
+    )
+
+    st.markdown("## Public Facilities")
 
     st.dataframe(
-        facilities[["name", "type", "height"]],
-        use_container_width=True,
+        facilities[["name", "type"]],
+        width="stretch",
         hide_index=True
     )
 
 
-# ---------------------------------------------------------
-# PAGE 6: EMERGENCY
-# ---------------------------------------------------------
-
-elif page == "Emergency":
-
-    header(
-        "Emergency Services",
-        "Healthcare, police and fire-response infrastructure"
-    )
-
-    city_map(650)
-
-    emergency = pd.DataFrame(city["facilities"])
-
-    emergency = emergency[
-        emergency["type"].isin([
-            "Hospital",
-            "Police",
-            "Fire"
-        ])
-    ]
-
-    st.dataframe(
-        emergency[["name", "type"]],
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-# ---------------------------------------------------------
-# PAGE 7: ENVIRONMENT
-# ---------------------------------------------------------
-
-elif page == "Environment":
-
-    header(
-        "Environmental Intelligence",
-        "Urban green spaces and sustainability indicators"
-    )
-
-    a, b, c, d = st.columns(4)
-
-    a.metric("Green Spaces", len(city["parks"]))
-    b.metric("Green Cover", "28%")
-    c.metric("Air Quality Index", "42")
-    d.metric("Water Reserve", "84%")
-
-    city_map(620)
-
-    st.info(
-        "Environmental figures are illustrative data, not live sensor readings."
-    )
-
-
-# ---------------------------------------------------------
-# PAGE 8: ANALYTICS
-# ---------------------------------------------------------
+# --------------------------------------------------
+# ANALYTICS
+# --------------------------------------------------
 
 elif page == "Analytics":
 
     header(
-        "Urban Analytics",
-        "Infrastructure distribution and city composition"
+        "CITY ANALYTICS",
+        "Urban infrastructure and simulated movement statistics"
     )
 
     buildings = pd.DataFrame(city["buildings"])
-    roads = pd.DataFrame(city["roads"])
-    facilities = pd.DataFrame(city["facilities"])
 
-    a, b = st.columns(2)
+    a,b = st.columns(2)
 
     with a:
 
-        chart_bar(
-            "Buildings by Category",
-            buildings.groupby("type").size().reset_index(name="count"),
-            "type",
-            "count"
+        fig = px.histogram(
+            buildings,
+            x="height",
+            nbins=15,
+            title="Building Height Distribution",
+            template="plotly_dark"
         )
+
+        st.plotly_chart(fig, use_container_width=True)
 
     with b:
 
-        chart_bar(
-            "Road Network by Classification",
-            roads.groupby("type").size().reset_index(name="count"),
-            "type",
-            "count"
+        fig = px.pie(
+            pd.DataFrame(vehicles),
+            names="type",
+            title="Vehicle Composition",
+            template="plotly_dark"
         )
 
-    st.markdown("## Facility Composition")
+        st.plotly_chart(fig, use_container_width=True)
 
-    fig = px.pie(
-        facilities,
-        names="type",
-        hole=.58,
-        template="plotly_dark"
+    st.markdown("## Simulation Metrics")
+
+    metrics = pd.DataFrame({
+        "Metric": [
+            "Active Vehicles",
+            "Pedestrians",
+            "Traffic Signals",
+            "Buildings",
+            "Facilities"
+        ],
+        "Value": [
+            len(vehicles),
+            len(pedestrians),
+            len(signals),
+            len(city["buildings"]),
+            len(city["facilities"])
+        ]
+    })
+
+    st.dataframe(
+        metrics,
+        width="stretch",
+        hide_index=True
     )
 
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        height=380
-    )
 
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-
-
-# ---------------------------------------------------------
+# --------------------------------------------------
 # FOOTER
-# ---------------------------------------------------------
+# --------------------------------------------------
 
 st.divider()
 
 st.markdown(
     """
-    <div style="text-align:center;color:#7899b0;font-size:11px">
-        NOVACITY · URBAN DIGITAL TWIN · 3D VISUALIZATION PLATFORM
+    <div style="text-align:center;color:#7298b2;font-size:11px">
+        NOVACITY | 3D URBAN DIGITAL TWIN |
+        TRAFFIC · INFRASTRUCTURE · MOBILITY · ENVIRONMENT
     </div>
     """,
     unsafe_allow_html=True
