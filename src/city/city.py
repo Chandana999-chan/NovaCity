@@ -84,7 +84,8 @@ def create_city():
             capacity=capacity,
             speed=speed,
             traffic=0,
-            closed=False
+            closed=False,
+            event_factor=1.0
         )
 
     return city
@@ -108,5 +109,3 @@ if __name__ == "__main__":
             if data["district"] == district
         )
         print(district, ":", count, "junctions")
-G=create_city()
-print('Distance:', nx.shortest_path_length(G, 'J1', 'J15', weight='distance'), 'km')

@@ -11,91 +11,44 @@ def route_travel_time(city, route):
 
     for u, v in zip(route[:-1], route[1:]):
         data = city.edges[u, v]
-
-        total_time += data.get(
-            "travel_time",
-            (data["distance"] / data["speed"]) * 60
-        )
+        total_time += data["travel_time"]
 
     return total_time
 
 
 def analyze_road_closure(city, commuters, road):
-    """
-    Compare commuter journeys before and after a road closure.
-    The original road status is restored after analysis.
-    """
+    """Compare commuter journeys before and after road closure."""
 
     u, v = road
 
     if not city.has_edge(u, v):
         raise ValueError(f"Road {u}-{v} does not exist.")
-        
-    # Initialise free-flow travel time for every road.
-    for u, v, data in city.edges(data=True):
+
+    # Initialise free-flow travel time.
+    for a, b, data in city.edges(data=True):
         data["travel_time"] = (
             data["distance"] / data["speed"]
         ) * 60
 
-
     # Calculate normal routes.
     normal_routes = calculate_all_routes(city, commuters)
 
-    
-    road_usage = sum(
-        1
-        for route in normal_routes["route"]
-        if any(
-            {u, v} == {"J10", "J11"}
-            for u, v in zip(route[:-1], route[1:])
-        )
-    )
-
-    print("Commuters using J10-J11 before closure:", road_usage)
-
-
-    # Save the original closure status.
+    # Save original road status.
     original_status = city.edges[u, v].get("closed", False)
 
-    
     try:
+        # Close selected road.
         city.edges[u, v]["closed"] = True
 
-        print("Road closed status:", city.edges[u, v]["closed"])
-
+        # Calculate routes after closure.
         disrupted_routes = calculate_all_routes(city, commuters)
-        
-        direct_changes = sum(
-            old != new
-            for old, new in zip(
-                normal_routes["route"],
-                disrupted_routes["route"]
-            )
-        )
-
-        print("Direct route comparison:", direct_changes)
-
-
-        # Check whether disrupted routes still use the closed road.
-        still_using_closed_road = sum(
-            1
-            for route in disrupted_routes["route"]
-            if any(
-                {a, b} == {u, v}
-                for a, b in zip(route[:-1], route[1:])
-            )
-        )
-
-        print(
-            "Commuters still using closed road:",
-            still_using_closed_road
-        )
 
     finally:
+        # Restore original road status.
         city.edges[u, v]["closed"] = original_status
 
-
-        comparisons = []
+    # Compare routes.
+    comparisons = []
 
     for index in range(len(normal_routes)):
 
@@ -111,6 +64,7 @@ def analyze_road_closure(city, commuters, road):
         disrupted_distance = disrupted["distance"]
 
         normal_time = route_travel_time(city, normal_route)
+
         disrupted_time = (
             route_travel_time(city, disrupted_route)
             if reachable else None
@@ -181,7 +135,6 @@ if __name__ == "__main__":
 
     print("\nNOVACITY ROAD CLOSURE IMPACT")
     print("----------------------------")
-
     print("Closed road: J10-J11")
     print("Total commuters:", report["total_commuters"])
     print("Affected commuters:", report["affected_commuters"])

@@ -97,7 +97,13 @@ def calculate_traffic(city, routes, simulation_hours=3):
             1 + 0.15 * (utilisation_ratio ** 4)
         )
 
-        travel_time = free_flow_time * congestion_factor
+        event_factor = data.get("event_factor", 1.0)
+
+        travel_time = (
+            free_flow_time
+            * congestion_factor
+            * event_factor
+        )
 
         # Update graph edge attributes.
         data["traffic"] = vehicles_per_hour
@@ -132,9 +138,13 @@ def run_congestion_simulation(city, commuters, simulation_hours=3, iterations=3)
 
     # Initialise all roads with free-flow travel times.
     for u, v, data in city.edges(data=True):
-        data["travel_time"] = (
-            data["distance"] / data["speed"]
+        free_flow_time = (
+        data["distance"] / data["speed"]
         ) * 60
+
+        event_factor = data.get("event_factor", 1.0)
+
+        data["travel_time"] = free_flow_time * event_factor
 
     # Baseline: routes before congestion is considered.
     baseline_routes = calculate_all_routes(city, commuters)
