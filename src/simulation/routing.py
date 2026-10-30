@@ -1,267 +1,226 @@
+
 import networkx as nx
+import math
 import pandas as pd
 
 
-def get_best_edge(city, u, v, weight="travel_time"):
-    """
-    Return the best available edge between two nodes.
-
-    A MultiDiGraph may have multiple parallel road segments
-    between the same pair of nodes.
-
-    The edge with the lowest travel time is selected.
-    Closed roads are excluded.
-    """
-
-    if not city.has_edge(u, v):
-        return None, None
-
-    if city.is_multigraph():
-
-        candidates = city[u][v]
-
-        available = []
-
-        for key, data in candidates.items():
-
-            if data.get("closed", False):
-                continue
-
-            edge_weight = data.get(weight, float("inf"))
-
-            if edge_weight is None:
-                continue
-
-            try:
-                edge_weight = float(edge_weight)
-            except (TypeError, ValueError):
-                continue
-
-            if edge_weight < 0 or edge_weight == float("inf"):
-                continue
-
-            available.append((key, data))
-
-        if not available:
-            return None, None
-
-        return min(
-            available,
-            key=lambda item: float(
-                item[1].get(weight, float("inf"))
-            )
-        )
-
-    data = city[u][v]
+def get_edge_weight(data):
+    """Calculate realistic travel cost for one road segment."""
 
     if data.get("closed", False):
-        return None, None
+        return math.inf
 
-    return 0, data
+    distance = float(data.get("distance", data.get("length", 1)))
 
-
-def get_edge_weight(city, u, v, weight="travel_time"):
-    """
-    NetworkX weight callback.
-
-    Returns None for unavailable roads.
-    """
-
-    key, data = get_best_edge(
-        city,
-        u,
-        v,
-        weight
+    # Support both 'speed' and 'speed_limit' attributes.
+    speed = max(
+        float(data.get("speed_limit", data.get("speed", 25))),
+        5
     )
 
-    if data is None:
-        return None
+    # Base travel time in minutes.
+    base_time = float(
+        data.get(
+            "travel_time",
+            (distance / 1000) / speed * 60
+        )
+    )
 
-    value = data.get(weight, float("inf"))
+    if not math.isfinite(base_time) or base_time <= 0:
+        base_time = max((distance / 1000) / speed * 60, 0.01)
 
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        return None
+    # Congestion penalty.
+    utilisation = float(data.get("utilisation", 0))
+    congestion_factor = 1 + 0.15 * max(utilisation, 0) ** 4
 
-    if value < 0 or value == float("inf"):
-        return None
+    # Accident penalty.
+    accident_factor = 1.0
 
-    return value
+    if data.get("accident", False):
+        severity = data.get("accident_severity", "moderate")
+
+        accident_factor = {
+            "low": 1.3,
+            "moderate": 1.8,
+            "high": 3.0,
+            "critical": 6.0
+        }.get(severity, 1.8)
+
+    # Flood penalty.
+    flood_factor = 1.0
+
+    if data.get("flooded", False):
+        depth = float(data.get("flood_depth", 0))
+
+        if depth >= 0.50:
+            return math.inf
+        elif depth >= 0.30:
+            flood_factor = 5.0
+        elif depth >= 0.15:
+            flood_factor = 2.5
+        else:
+            flood_factor = 1.5
+
+    return base_time * congestion_factor * accident_factor * flood_factor
 
 
-def calculate_route(
-    city,
-    origin,
-    destination,
-    weight="travel_time"
-):
+def edge_weight(u, v, data):
     """
-    Find the shortest available route.
+    NetworkX-compatible weight callback.
 
     Supports:
-    - Directed roads
-    - One-way roads
-    - Parallel road segments
-    - Closed roads
-    - Congestion-adjusted travel times
-
-    Returns node route and the selected edge details.
+    - Graph
+    - DiGraph
+    - MultiGraph
+    - MultiDiGraph
     """
 
-    if origin not in city or destination not in city:
+    # For MultiGraph, data contains:
+    # {edge_key: {road attributes}}
+    #
+    # For Graph, data directly contains:
+    # {road attribute: value}
 
-        return {
-            "route": [],
-            "distance": None,
-            "travel_time": None,
-            "edges": []
-        }
+    if data and all(isinstance(value, dict) for value in data.values()):
+        weights = [
+            get_edge_weight(edge_data)
+            for edge_data in data.values()
+        ]
 
-    if origin == destination:
+        valid = [
+            weight for weight in weights
+            if math.isfinite(weight)
+        ]
 
-        return {
-            "route": [origin],
-            "distance": 0,
-            "travel_time": 0,
-            "edges": []
-        }
+        return min(valid) if valid else math.inf
 
-    # Create a view that excludes closed roads.
-    if city.is_multigraph():
+    # Normal Graph / DiGraph.
+    return get_edge_weight(data)
 
-        available_city = nx.subgraph_view(
-            city,
-            filter_edge=lambda u, v, key: (
-                not city.edges[u, v, key].get(
-                    "closed", False
-                )
-            )
-        )
+
+def get_best_edge(graph, u, v):
+    """Return the best usable physical road between two nodes."""
+
+    candidates = []
+
+    if graph.is_multigraph():
+
+        for key, data in graph[u][v].items():
+            weight = get_edge_weight(data)
+
+            if math.isfinite(weight):
+                candidates.append((weight, key, data))
 
     else:
 
-        available_city = nx.subgraph_view(
-            city,
-            filter_edge=lambda u, v: (
-                not city.edges[u, v].get(
-                    "closed", False
-                )
-            )
-        )
+        data = graph[u][v]
+        weight = get_edge_weight(data)
+
+        if math.isfinite(weight):
+            candidates.append((weight, None, data))
+
+    if not candidates:
+        return None
+
+    _, key, data = min(
+        candidates,
+        key=lambda item: item[0]
+    )
+
+    return {
+        "u": u,
+        "v": v,
+        "key": key,
+        "data": data
+    }
+
+
+def calculate_route(graph, origin, destination):
+    """Calculate the fastest available route using Dijkstra."""
+
+    if origin not in graph or destination not in graph:
+        return None
 
     try:
-
-        route = nx.shortest_path(
-            available_city,
+        path = nx.shortest_path(
+            graph,
             source=origin,
             target=destination,
-            weight=lambda u, v, data: get_edge_weight(
-                city,
-                u,
-                v,
-                weight
-            )
+            weight=edge_weight,
+            method="dijkstra"
         )
 
-        total_distance = 0.0
-        total_travel_time = 0.0
-        selected_edges = []
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        return None
 
-        # Resolve the actual road segment used between
-        # each pair of consecutive intersections.
-        for u, v in zip(route[:-1], route[1:]):
+    edges = []
+    total_distance = 0.0
+    total_time = 0.0
 
-            key, data = get_best_edge(
-                city,
-                u,
-                v,
-                weight
-            )
+    for u, v in zip(path[:-1], path[1:]):
 
-            if data is None:
-                raise nx.NetworkXNoPath(
-                    f"No usable road between {u} and {v}"
-                )
+        edge = get_best_edge(graph, u, v)
 
-            distance = float(
-                data.get("distance", 0)
-            )
+        if edge is None:
+            return None
 
-            travel_time = float(
-                data.get("travel_time", 0)
-            )
+        data = edge["data"]
+        weight = get_edge_weight(data)
 
-            total_distance += distance
-            total_travel_time += travel_time
+        if not math.isfinite(weight):
+            return None
 
-            selected_edges.append({
-                "start": u,
-                "end": v,
-                "key": key,
-                "road_id": data.get(
-                    "road_id",
-                    f"{u}_{v}_{key}"
-                ),
-                "name": data.get("name", "Unnamed road"),
-                "distance": distance,
-                "travel_time": travel_time
-            })
+        distance = float(
+            data.get("distance", data.get("length", 0))
+        )
 
-        return {
-            "route": route,
-            "distance": total_distance,
-            "travel_time": total_travel_time,
-            "edges": selected_edges
-        }
+        edges.append({
+            "u": u,
+            "v": v,
+            "key": edge["key"],
+            "road_id": data.get("road_id"),
+            "name": data.get("name", "Unnamed Road"),
+            "distance": distance,
+            "travel_time": weight
+        })
 
-    except (
-        nx.NetworkXNoPath,
-        nx.NodeNotFound
-    ):
+        total_distance += distance
+        total_time += weight
 
-        return {
-            "route": [],
-            "distance": None,
-            "travel_time": None,
-            "edges": []
-        }
+    return {
+        "route": path,
+        "edges": edges,
+        "distance": total_distance,
+        "travel_time": total_time
+    }
 
 
-def calculate_all_routes(city, commuters):
-    """
-    Calculate routes for all commuters.
-    """
+def calculate_all_routes(graph, commuters):
+    """Calculate routes for all commuters."""
 
     results = []
 
     for _, commuter in commuters.iterrows():
 
         result = calculate_route(
-            city=city,
-            origin=commuter["origin"],
-            destination=commuter["destination"],
-            weight="travel_time"
+            graph,
+            commuter["origin"],
+            commuter["destination"]
         )
 
+        if result is None:
+            continue
+
         results.append({
-
             "commuter_id": commuter["commuter_id"],
-
             "origin": commuter["origin"],
-
             "destination": commuter["destination"],
-
             "route": result["route"],
-
-            "distance": result["distance"],
-
-            "travel_time": result["travel_time"],
-
             "edges": result["edges"],
-
-            "transport_mode": commuter["transport_mode"]
-
+            "distance": result["distance"],
+            "travel_time": result["travel_time"],
+            "transport_mode": commuter.get("transport_mode", "car")
         })
 
     return pd.DataFrame(results)
+

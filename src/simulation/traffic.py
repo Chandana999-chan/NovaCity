@@ -1,351 +1,347 @@
-import networkx as nx
+
+import math
 import pandas as pd
 
 from src.simulation.routing import calculate_all_routes
 
 
-def get_road_edges(city):
+MODE_FACTORS = {
+    "car": 1.0,
+    "auto": 0.7,
+    "bus": 2.5,
+    "delivery": 1.2
+}
+
+
+def get_edge_id(graph, u, v, key=None):
     """
-    Return every road segment.
+    Generate a consistent road identifier.
 
-    Supports:
-    - OSMnx MultiDiGraph / MultiGraph
-    - NetworkX DiGraph / Graph
-    """
-
-    if city.is_multigraph():
-        return list(city.edges(keys=True, data=True))
-
-    return [
-        (u, v, 0, data)
-        for u, v, data in city.edges(data=True)
-    ]
-
-
-def get_edge_data(city, u, v):
-    """
-    Find the best usable parallel edge between two nodes.
-
-    For a MultiDiGraph, multiple road segments may connect
-    the same pair of nodes. Select the one with the lowest
-    current travel time.
+    Handles normal Graph and MultiGraph structures.
+    Undirected roads use the same ID in either direction.
     """
 
-    if not city.has_edge(u, v):
-        return None, None
+    if not graph.is_directed():
+        if str(u) > str(v):
+            u, v = v, u
 
-    if city.is_multigraph():
-        candidates = city[u][v]
+    return u, v, key if graph.is_multigraph() else None
 
-        usable = [
-            (key, data)
-            for key, data in candidates.items()
-            if not data.get("closed", False)
-        ]
 
-        if not usable:
-            return None, None
+def iter_roads(graph):
+    """Yield every road in a consistent format."""
 
-        return min(
-            usable,
-            key=lambda item: item[1].get(
-                "travel_time", float("inf")
-            )
+    if graph.is_multigraph():
+        for u, v, key, data in graph.edges(keys=True, data=True):
+            yield u, v, key, data
+    else:
+        for u, v, data in graph.edges(data=True):
+            yield u, v, None, data
+
+
+def initialise_road_attributes(graph):
+    """Initialise road attributes for all supported NetworkX graph types."""
+
+    for u, v, key, data in iter_roads(graph):
+
+        distance = float(
+            data.get("distance", data.get("length", 1))
         )
 
-    data = city[u][v]
-
-    if data.get("closed", False):
-        return None, None
-
-    return 0, data
-
-
-def calculate_free_flow_time(distance, speed):
-    """
-    Calculate free-flow travel time in minutes.
-
-    OSMnx:
-    - distance is in metres
-    - speed is in kilometres per hour
-
-    Formula:
-    minutes = distance(m) * 0.06 / speed(km/h)
-    """
-
-    speed = max(float(speed), 1.0)
-    distance = max(float(distance), 0.0)
-
-    return (distance * 0.06) / speed
-
-
-def initialise_road_attributes(city):
-    """
-    Initialise simulation attributes on every road segment.
-    """
-
-    for u, v, key, data in get_road_edges(city):
-
-        distance = float(data.get("distance", 100))
-
-        speed = float(
-            data.get(
-                "speed",
-                data.get("speed_kph", 30)
-            )
+        # NovaCity's current city network uses distance in kilometres
+        # and speed in kilometres per hour.
+        speed = max(
+            float(data.get("speed", data.get("speed_limit", 25))),
+            5.0
         )
 
-        lanes = max(int(data.get("lanes", 1)), 1)
+        free_flow_time = distance / speed * 60
 
-        capacity = float(
-            data.get("capacity", lanes * 600)
-        )
-
-        free_flow_time = calculate_free_flow_time(
-            distance,
-            speed
-        )
-
-        data.setdefault("road_id", f"{u}_{v}_{key}")
-        data["distance"] = distance
-        data["speed"] = speed
-        data["lanes"] = lanes
-        data["capacity"] = max(capacity, 1)
-
-        data.setdefault("traffic", 0.0)
-        data.setdefault("utilisation", 0.0)
+        data.setdefault("traffic", 0)
         data.setdefault("vehicle_count", 0)
+        data.setdefault("weighted_load", 0)
+        data.setdefault("utilisation", 0.0)
         data.setdefault("queue_length", 0)
         data.setdefault("event_factor", 1.0)
+        data.setdefault("closed", False)
 
         data["free_flow_time"] = free_flow_time
 
-        if data.get("closed", False):
-            data["travel_time"] = float("inf")
-        else:
-            data["travel_time"] = (
-                free_flow_time * data["event_factor"]
-            )
+        if not data.get("travel_time") or data["travel_time"] <= 0:
+            data["travel_time"] = free_flow_time
+
+    return graph
 
 
-def calculate_traffic(city, routes, simulation_hours=3):
-    """
-    Calculate traffic volume, utilisation and congestion-adjusted
-    travel time for every road segment.
+def calculate_traffic(graph, routes, simulation_hours=1):
+    """Calculate road usage, capacity utilisation and congestion."""
 
-    Each car commuter represents one vehicle.
-    Bus commuters are counted as passengers, not physical buses.
+    simulation_hours = max(float(simulation_hours), 0.01)
 
-    This is an aggregate traffic assignment model, not yet
-    a vehicle-by-vehicle movement simulation.
-    """
+    usage = {}
 
-    if simulation_hours <= 0:
-        raise ValueError("Simulation hours must be positive.")
+    # Initialise usage for every road.
+    for u, v, key, data in iter_roads(graph):
 
-    if routes is None or routes.empty:
-        raise ValueError("Route data is empty.")
+        edge_id = get_edge_id(graph, u, v, key)
 
-    road_counts = {}
-
-    # Initialise a separate counter for every directed road segment.
-    for u, v, key, data in get_road_edges(city):
-
-        road_id = data.get(
-            "road_id",
-            f"{u}_{v}_{key}"
-        )
-
-        road_counts[(u, v, key)] = {
-            "road_id": road_id,
-            "car_traversals": 0,
-            "bus_passengers": 0
+        usage[edge_id] = {
+            "vehicles": 0,
+            "weighted_load": 0.0
         }
 
-    # Count commuter movements.
+    # Count commuter usage.
     for _, commuter in routes.iterrows():
 
-        route = commuter.get("route", None)
-        transport_mode = commuter.get(
-            "transport_mode", "car"
-        )
+        mode = commuter.get("transport_mode", "car")
+        factor = MODE_FACTORS.get(mode, 1.0)
 
-        if not isinstance(route, (list, tuple)):
-            continue
+        for edge in commuter.get("edges", []):
 
-        for u, v in zip(route[:-1], route[1:]):
-
-            key, edge_data = get_edge_data(city, u, v)
-
-            # Skip missing or closed road segments.
-            if edge_data is None:
-                continue
-
-            edge_key = (u, v, key)
-
-            if edge_key not in road_counts:
-                continue
-
-            if transport_mode == "car":
-                road_counts[edge_key]["car_traversals"] += 1
-
-            elif transport_mode == "bus":
-                road_counts[edge_key]["bus_passengers"] += 1
-
-    road_results = []
-
-    # Calculate congestion for every road segment.
-    for u, v, key, data in get_road_edges(city):
-
-        counts = road_counts[(u, v, key)]
-
-        car_traversals = counts["car_traversals"]
-        bus_passengers = counts["bus_passengers"]
-
-        capacity = max(float(data["capacity"]), 1)
-
-        vehicles_per_hour = (
-            car_traversals / simulation_hours
-        )
-
-        utilisation_ratio = vehicles_per_hour / capacity
-        utilisation_percent = utilisation_ratio * 100
-
-        free_flow_time = data["free_flow_time"]
-
-        event_factor = max(
-            float(data.get("event_factor", 1.0)),
-            1.0
-        )
-
-        closed = data.get("closed", False)
-
-        # BPR-style congestion calculation.
-        congestion_factor = (
-            1 + 0.15 * (utilisation_ratio ** 4)
-        )
-
-        if closed:
-            travel_time = float("inf")
-        else:
-            travel_time = (
-                free_flow_time
-                * congestion_factor
-                * event_factor
+            edge_id = get_edge_id(
+                graph,
+                edge["u"],
+                edge["v"],
+                edge.get("key")
             )
 
-        # Update actual graph edge attributes.
-        data["traffic"] = vehicles_per_hour
-        data["utilisation"] = utilisation_ratio
-        data["vehicle_count"] = car_traversals
-        data["travel_time"] = travel_time
+            if edge_id not in usage:
+                continue
 
-        road_results.append({
-            "road_id": counts["road_id"],
-            "road": data.get("name", f"{u}-{v}"),
+            usage[edge_id]["vehicles"] += 1
+            usage[edge_id]["weighted_load"] += factor
+
+    records = []
+
+    # Calculate traffic for every road.
+    for u, v, key, data in iter_roads(graph):
+
+        edge_id = get_edge_id(graph, u, v, key)
+        road_usage = usage[edge_id]
+
+        vehicles = road_usage["vehicles"]
+        load = road_usage["weighted_load"]
+
+        capacity = max(float(data.get("capacity", 1)), 1)
+        hourly_capacity = capacity * simulation_hours
+
+        utilisation = load / hourly_capacity
+
+        # Bureau of Public Roads-style congestion model.
+        congestion_factor = 1 + 0.15 * (utilisation ** 4)
+
+        base_time = float(data["free_flow_time"])
+
+        if data.get("closed", False):
+            travel_time = math.inf
+        else:
+            travel_time = (
+                base_time
+                * congestion_factor
+                * float(data.get("event_factor", 1.0))
+            )
+
+        if utilisation < 0.50:
+            level = "Low"
+        elif utilisation < 0.85:
+            level = "Medium"
+        else:
+            level = "High"
+
+        queue = max(0, load - hourly_capacity)
+
+        # Update the actual graph edge.
+        data["vehicle_count"] = vehicles
+        data["traffic"] = vehicles
+        data["weighted_load"] = load
+        data["vehicles_per_hour"] = vehicles / simulation_hours
+        data["utilisation"] = utilisation
+        data["congestion_factor"] = congestion_factor
+        data["travel_time"] = travel_time
+        data["queue_length"] = queue
+        data["traffic_level"] = level
+
+        records.append({
+            "u": u,
+            "v": v,
             "start": u,
             "end": v,
             "key": key,
-            "car_traversals": car_traversals,
-            "bus_passengers": bus_passengers,
-            "vehicles_per_hour": round(
-                vehicles_per_hour, 2
-            ),
+            "road_id": data.get("road_id"),
+            "road_name": data.get("name", "Unnamed Road"),
+            "vehicles": vehicles,
+            "vehicles_per_hour": vehicles / simulation_hours,
             "capacity": capacity,
-            "utilisation": round(
-                utilisation_percent, 2
-            ),
-            "free_flow_time": round(
-                free_flow_time, 4
-            ),
-            "travel_time": (
-                round(travel_time, 4)
-                if travel_time != float("inf")
-                else None
-            ),
-            "closed": closed,
-            "flooded": data.get("flooded", False),
-            "accident": data.get("accident", False)
+            "utilisation": utilisation,
+            "queue_length": queue,
+            "free_flow_time": base_time,
+            "travel_time": travel_time,
+            "traffic_level": level,
+            "closed": data.get("closed", False),
+            "accident": data.get("accident", False),
+            "flooded": data.get("flooded", False)
         })
 
-    return pd.DataFrame(road_results)
+    return pd.DataFrame(records)
+
+
+def find_changed_routes(baseline, updated):
+    """Identify commuters whose routes changed."""
+
+    if baseline is None or updated is None:
+        return pd.DataFrame()
+
+    if baseline.empty or updated.empty:
+        return pd.DataFrame()
+
+    original = baseline.set_index("commuter_id")
+    current = updated.set_index("commuter_id")
+
+    common = original.index.intersection(current.index)
+
+    changed = []
+
+    for commuter_id in common:
+
+        old_route = original.loc[commuter_id, "route"]
+        new_route = current.loc[commuter_id, "route"]
+
+        if list(old_route) != list(new_route):
+
+            changed.append({
+                "commuter_id": commuter_id,
+                "old_route": old_route,
+                "new_route": new_route,
+                "old_time": original.loc[
+                    commuter_id, "travel_time"
+                ],
+                "new_time": current.loc[
+                    commuter_id, "travel_time"
+                ]
+            })
+
+    return pd.DataFrame(changed)
 
 
 def run_congestion_simulation(
-    city,
+    graph,
     commuters,
-    simulation_hours=3,
+    simulation_hours=1,
     iterations=3
 ):
     """
-    Run iterative congestion-aware traffic assignment.
+    Run iterative congestion simulation.
 
-    The routing module recalculates commuter routes using
-    updated congestion-adjusted travel times.
+    Returns the four keys required by engine.py:
+    baseline_routes, final_routes, traffic, changed_routes.
     """
 
-    if iterations < 1:
-        raise ValueError("Iterations must be at least 1.")
+    initialise_road_attributes(graph)
 
-    if commuters is None or commuters.empty:
-        raise ValueError("Commuter data is empty.")
-
-    initialise_road_attributes(city)
-
-    # Baseline route assignment.
+    # Step 1: Calculate original routes before congestion updates.
     baseline_routes = calculate_all_routes(
-        city,
+        graph,
         commuters
     )
 
-    baseline_traffic = calculate_traffic(
-        city,
-        baseline_routes,
-        simulation_hours
-    )
+    if baseline_routes is None:
+        baseline_routes = pd.DataFrame()
 
-    current_routes = baseline_routes
-    current_traffic = baseline_traffic
+    # Keep a separate copy for route comparison.
+    baseline_routes = baseline_routes.copy(deep=True)
 
-    # Congestion-aware iterations.
-    for iteration in range(iterations):
+    current_routes = baseline_routes.copy(deep=True)
 
-        print(
-            f"\nTraffic iteration: "
-            f"{iteration + 1}/{iterations}"
-        )
+    # Step 2: Iteratively calculate congestion and update routes.
+    for _ in range(max(1, int(iterations))):
 
-        current_routes = calculate_all_routes(
-            city,
-            commuters
-        )
+        if current_routes.empty:
+            break
 
-        current_traffic = calculate_traffic(
-            city,
+        traffic_df = calculate_traffic(
+            graph,
             current_routes,
             simulation_hours
         )
 
-    # Count changed commuter routes.
-    changed_routes = 0
+        # Update road travel times.
+        for _, row in traffic_df.iterrows():
 
-    if (
-        "route" in baseline_routes.columns
-        and "route" in current_routes.columns
-    ):
+            u = row["u"]
+            v = row["v"]
 
-        for old_route, new_route in zip(
-            baseline_routes["route"],
-            current_routes["route"]
+            if not graph.has_edge(u, v):
+                continue
+
+            if graph.is_multigraph():
+
+                key = row["key"]
+
+                if graph.has_edge(u, v, key):
+                    graph[u][v][key]["travel_time"] = row[
+                        "travel_time"
+                    ]
+
+            else:
+                graph[u][v]["travel_time"] = row[
+                    "travel_time"
+                ]
+
+        # Recalculate commuter routes.
+        updated_routes = calculate_all_routes(
+            graph,
+            commuters
+        )
+
+        if updated_routes is None or updated_routes.empty:
+            break
+
+        if (
+            "route" in current_routes.columns
+            and "route" in updated_routes.columns
         ):
 
-            if old_route != new_route:
-                changed_routes += 1
+            old = current_routes.set_index(
+                "commuter_id"
+            )["route"]
 
+            new = updated_routes.set_index(
+                "commuter_id"
+            )["route"]
+
+            common = old.index.intersection(new.index)
+
+            unchanged = all(
+                list(old.loc[cid]) == list(new.loc[cid])
+                for cid in common
+            )
+
+            current_routes = updated_routes
+
+            if unchanged:
+                break
+
+        else:
+            current_routes = updated_routes
+
+    # Step 3: Calculate final traffic metrics.
+    final_traffic = calculate_traffic(
+        graph,
+        current_routes,
+        simulation_hours
+    )
+
+    # Step 4: Identify changed commuter routes.
+    changed_routes = find_changed_routes(
+        baseline_routes,
+        current_routes
+    )
+
+    # Return exactly what engine.py expects.
     return {
         "baseline_routes": baseline_routes,
         "final_routes": current_routes,
-        "baseline_traffic": baseline_traffic,
-        "final_traffic": current_traffic,
+        "traffic": final_traffic,
         "changed_routes": changed_routes
     }
+

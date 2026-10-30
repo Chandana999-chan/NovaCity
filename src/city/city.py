@@ -1,186 +1,111 @@
-import os
-import pickle
-from pathlib import Path
 
 import networkx as nx
-import osmnx as ox
+
+from src.city.districts import DISTRICTS
 
 
-# --------------------------------------------------
-# NOVACITY - REAL BENGALURU MAP
-# --------------------------------------------------
+def create_city():
 
-CITY_NAME = "KR Market, Bengaluru, Karnataka, India"
+    city = nx.Graph()
 
-MAP_DISTANCE = 1200
+    # Junctions grouped by district
+    junctions = {
+        # Greenfield
+        "J1": ("Greenfield", 0, 0),
+        "J2": ("Greenfield", 1, 2),
+        "J3": ("Greenfield", 2, 0),
+        "J4": ("Greenfield", 3, 2),
+        "J5": ("Greenfield", 4, 0),
 
-CACHE_DIR = Path("data/osm")
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        # TechPark
+        "J6": ("TechPark", 5, 3),
+        "J7": ("TechPark", 6, 5),
+        "J8": ("TechPark", 7, 3),
+        "J9": ("TechPark", 8, 5),
+        "J10": ("TechPark", 9, 3),
 
-GRAPH_FILE = CACHE_DIR / "kr_market_drive.graphml"
+        # Industrial Zone
+        "J11": ("IndustrialZone", 10, 0),
+        "J12": ("IndustrialZone", 11, 2),
+        "J13": ("IndustrialZone", 12, 0),
+        "J14": ("IndustrialZone", 13, 2),
+        "J15": ("IndustrialZone", 14, 0),
+    }
 
-
-def download_real_city():
-
-    """
-    Download the real driving road network around
-    KR Market, Bengaluru, using OpenStreetMap.
-    """
-
-    ox.settings.use_cache = True
-    ox.settings.log_console = True
-    ox.settings.timeout = 180
-
-    print("\nDownloading real Bengaluru road network...")
-
-    graph = ox.graph.graph_from_address(
-        CITY_NAME,
-        dist=MAP_DISTANCE,
-        network_type="drive",
-        simplify=True,
-        retain_all=False,
-    )
-
-    graph = ox.add_edge_speeds(graph)
-    graph = ox.add_edge_travel_times(graph)
-
-    ox.save_graphml(graph, GRAPH_FILE)
-
-    print("Real road network downloaded.")
-    print("Junctions:", graph.number_of_nodes())
-    print("Road segments:", graph.number_of_edges())
-
-    return graph
-
-
-def load_real_city(force_download=False):
-
-    """
-    Load the cached OpenStreetMap network.
-    Download it if no cached network exists.
-    """
-
-    if GRAPH_FILE.exists() and not force_download:
-
-        print("Loading cached Bengaluru road network...")
-
-        graph = ox.load_graphml(GRAPH_FILE)
-
-    else:
-
-        graph = download_real_city()
-
-    return prepare_city(graph)
-
-
-def prepare_city(graph):
-
-    """
-    Add simulation properties without replacing
-    the actual OpenStreetMap road geometry.
-    """
-
-    graph.graph["name"] = "NovaCity - KR Market Bengaluru"
-    graph.graph["location"] = CITY_NAME
-    graph.graph["map_source"] = "OpenStreetMap"
-
-    for node, data in graph.nodes(data=True):
-
-        data["latitude"] = data["y"]
-        data["longitude"] = data["x"]
-
-        data["signalized"] = False
-        data["signal_state"] = "GREEN"
-
-        data["pedestrian_count"] = 0
-        data["pedestrian_demand"] = 0.0
-
-        data["accident"] = False
-        data["flooded"] = False
-
-    for u, v, key, data in graph.edges(
-        keys=True,
-        data=True
-    ):
-
-        length = float(data.get("length", 100))
-
-        speed = data.get("speed_kph", 30)
-
-        if isinstance(speed, list):
-            speed = speed[0]
-
-        try:
-            speed = float(speed)
-        except (ValueError, TypeError):
-            speed = 30.0
-
-        lanes = data.get("lanes", 1)
-
-        if isinstance(lanes, list):
-            lanes = lanes[0]
-
-        try:
-            lanes = max(1, int(lanes))
-        except (ValueError, TypeError):
-            lanes = 1
-
-        # Approximate capacity for simulation.
-        capacity = lanes * 600
-
-        data["road_id"] = f"{u}_{v}_{key}"
-
-        data["distance"] = length
-        data["length"] = length
-
-        data["speed_limit"] = speed
-        data["lanes"] = lanes
-
-        data["capacity"] = capacity
-
-        data["traffic"] = "Low"
-        data["utilisation"] = 0.0
-
-        data["vehicles_per_hour"] = 0.0
-        data["vehicle_count"] = 0
-
-        data["queue_length"] = 0
-
-        data["closed"] = False
-        data["accident"] = False
-        data["flooded"] = False
-
-        data["event_factor"] = 1.0
-        data["flood_depth"] = 0.0
-
-        data["travel_time"] = (
-            length / max(speed, 1) * 3.6
+    # Add junctions
+    for junction, (district, x, y) in junctions.items():
+        city.add_node(
+            junction,
+            district=district,
+            x=x,
+            y=y,
+            node_type="junction"
         )
 
-    return graph
+    # Roads: start, end, distance, capacity, speed
+    roads = [
+        # Greenfield roads
+        ("J1", "J2", 2, 800, 35),
+        ("J2", "J3", 2, 800, 35),
+        ("J3", "J4", 2, 800, 35),
+        ("J4", "J5", 2, 800, 35),
+        ("J1", "J3", 3, 1200, 50),
+        ("J3", "J5", 3, 1200, 50),
 
+        # TechPark roads
+        ("J6", "J7", 2, 1500, 50),
+        ("J7", "J8", 2, 1500, 50),
+        ("J8", "J9", 2, 1500, 50),
+        ("J9", "J10", 2, 1500, 50),
+        ("J6", "J8", 3, 1800, 60),
+        ("J8", "J10", 3, 1800, 60),
 
-def get_city_statistics(graph):
+        # Industrial roads
+        ("J11", "J12", 2, 700, 30),
+        ("J12", "J13", 2, 700, 30),
+        ("J13", "J14", 2, 700, 30),
+        ("J14", "J15", 2, 700, 30),
+        ("J11", "J13", 3, 1000, 40),
+        ("J13", "J15", 3, 1000, 40),
 
-    return {
-        "name": graph.graph.get("name"),
-        "junctions": graph.number_of_nodes(),
-        "road_segments": graph.number_of_edges(),
-        "connected_components": (
-            nx.number_weakly_connected_components(graph)
-            if graph.is_directed()
-            else nx.number_connected_components(graph)
-        ),
-        "location": graph.graph.get("location"),
-        "source": graph.graph.get("map_source"),
-    }
+        # Inter-district connections
+        ("J5", "J6", 3, 1800, 60),
+        ("J10", "J11", 4, 1500, 50),
+        ("J3", "J8", 5, 1200, 45),
+        ("J8", "J12", 5, 1000, 40),
+    ]
+
+    # Add roads
+    for start, end, distance, capacity, speed in roads:
+        city.add_edge(
+            start,
+            end,
+            distance=distance,
+            capacity=capacity,
+            speed=speed,
+            traffic=0,
+            closed=False,
+            event_factor=1.0
+        )
+
+    return city
 
 
 if __name__ == "__main__":
 
-    city = load_real_city()
+    city = create_city()
 
-    print("\nNOVACITY REAL MAP STATISTICS")
+    print("NOVACITY ROAD NETWORK")
+    print("---------------------")
+    print("Junctions:", city.number_of_nodes())
+    print("Roads:", city.number_of_edges())
+    print("Connected:", nx.is_connected(city))
 
-    for key, value in get_city_statistics(city).items():
-        print(f"{key}: {value}")
+    print("\nDistrict distribution:")
+
+    for district in DISTRICTS:
+        count = sum(
+            1 for _, data in city.nodes(data=True)
+            if data["district"] == district
+        )
+        print(district, ":", count, "junctions")

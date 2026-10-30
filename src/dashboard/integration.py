@@ -1,24 +1,14 @@
-from src.city.city import load_real_city
+from src.city.city import create_city
 from src.simulation.commuters import generate_commuters
 from src.simulation.engine import run_simulation
 
 
 def create_sample_city():
-    """
-    Load the actual OpenStreetMap road network
-    around K.R. Market, Bengaluru.
-    """
-    return load_real_city()
+    return create_city()
 
 
 def create_sample_commuters(city, num_commuters=500):
-    """
-    Generate commuters using actual road-network nodes.
-    """
-    return generate_commuters(
-        city,
-        num_commuters=num_commuters
-    )
+    return generate_commuters(city, num_commuters=num_commuters)
 
 
 def run_dashboard_simulation(
@@ -28,29 +18,21 @@ def run_dashboard_simulation(
     simulation_hours=3,
     iterations=3
 ):
-    """
-    Run the NovaCity baseline and disrupted scenarios.
-
-    Each scenario gets an independent graph copy.
-    """
+    """Run the actual NovaCity simulation."""
 
     return run_simulation(
-        city=city,
-        commuters=commuters,
-        events=events or [],
+        city,  # Positional argument fixes the keyword mismatch
+        commuters,
         simulation_hours=simulation_hours,
-        iterations=iterations
+        iterations=iterations,
+        events=events or []
     )
 
 
 def calculate_metrics(graph, commuters, events=None):
-    """
-    Calculate dashboard metrics using actual simulation results.
-    """
-
     results = run_dashboard_simulation(
-        city=graph,
-        commuters=commuters,
+        graph,
+        commuters,
         events=events
     )
 
@@ -58,24 +40,9 @@ def calculate_metrics(graph, commuters, events=None):
 
     return {
         "average_travel_time": summary["average_commute_time"],
-        "baseline_average_travel_time": summary[
-            "baseline_average_commute_time"
-        ],
-        "average_extra_time": summary["average_extra_time"],
         "affected_commuters": summary["affected_commuters"],
         "successful_routes": summary["reachable_commuters"],
-        "unreachable_commuters": summary["unreachable_commuters"],
         "total_commuters": summary["total_commuters"],
-        "changed_routes": summary["changed_routes"],
-        "average_road_utilisation": summary[
-            "average_road_utilisation"
-        ],
-        "events_applied": summary["events_applied"],
-        "affected_road_segments": summary[
-            "affected_road_segments"
-        ],
         "routes": results["final_routes"].to_dict("records"),
-        "baseline_routes": results["baseline_routes"].to_dict("records"),
-        "network_connectivity": summary["reachable_commuters"],
-        "simulation_results": results
+        "network_connectivity": summary["reachable_commuters"]
     }

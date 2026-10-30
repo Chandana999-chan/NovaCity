@@ -1,293 +1,99 @@
-from datetime import datetime
-from uuid import uuid4
+"""
+NovaCity - City Event Management
 
+Handles:
+1. Road closures
+2. Road accidents
+3. Flood events
+"""
 
-SUPPORTED_EVENTS = {
-    "road_closure",
-    "accident",
-    "flood"
-}
+def _get_road(event):
+    """Extract and normalize the road from an event."""
+    road = event.get("road")
 
+    if not road or len(road) != 2:
+        raise ValueError(f"Invalid road in event: {event}")
 
-def get_target_edges(graph, road):
-    """
-    Resolve an event target to actual road segments.
-
-    Supported:
-        (u, v)       -> all parallel segments u to v
-        (u, v, key)  -> one exact segment
-        road_id      -> segment identified by road_id
-    """
-
-    targets = []
-
-    if isinstance(road, str):
-
-        for u, v, key, data in graph.edges(
-            keys=True,
-            data=True
-        ):
-
-            if data.get("road_id") == road:
-                targets.append((u, v, key))
-
-    elif isinstance(road, (tuple, list)):
-
-        if len(road) == 2:
-
-            u, v = road
-
-            if graph.has_edge(u, v):
-
-                if graph.is_multigraph():
-
-                    for key in graph[u][v]:
-                        targets.append((u, v, key))
-
-                else:
-                    targets.append((u, v, 0))
-
-        elif len(road) == 3:
-
-            u, v, key = road
-
-            if graph.is_multigraph():
-
-                if graph.has_edge(u, v, key):
-                    targets.append((u, v, key))
-
-            elif graph.has_edge(u, v):
-                targets.append((u, v, 0))
-
-    if not targets:
-        raise ValueError(
-            f"Road segment not found: {road}"
-        )
-
-    return targets
-
-
-def create_event(
-    event_type,
-    road,
-    severity="moderate",
-    flood_depth=0.0,
-    duration_minutes=60
-):
-    """
-    Create an event definition.
-
-    Severity:
-        low
-        moderate
-        high
-        critical
-    """
-
-    if event_type not in SUPPORTED_EVENTS:
-        raise ValueError(
-            f"Unsupported event type: {event_type}"
-        )
-
-    if severity not in {
-        "low",
-        "moderate",
-        "high",
-        "critical"
-    }:
-        raise ValueError("Invalid event severity.")
-
-    if duration_minutes <= 0:
-        raise ValueError(
-            "Event duration must be positive."
-        )
-
-    if event_type == "flood" and flood_depth < 0:
-        raise ValueError(
-            "Flood depth cannot be negative."
-        )
-
-    return {
-        "event_id": str(uuid4())[:8],
-        "type": event_type,
-        "road": road,
-        "severity": severity,
-        "flood_depth": float(flood_depth),
-        "duration_minutes": int(duration_minutes),
-        "created_at": datetime.now().isoformat()
-    }
+    return tuple(road)
 
 
 def apply_road_closure(graph, road):
-    """
-    Close all targeted road segments.
-    """
+    """Close a road completely."""
 
-    targets = get_target_edges(graph, road)
+    source, destination = road
 
-    for u, v, key in targets:
-
-        data = graph.edges[u, v, key]
-
-        data["closed"] = True
-        data["closure"] = True
-        data["event_type"] = "road_closure"
+    if graph.has_edge(source, destination):
+        graph[source][destination]["closed"] = True
+        graph[source][destination]["event_factor"] = float("inf")
 
     return graph
 
 
-def apply_accident(
-    graph,
-    road,
-    severity="moderate"
-):
-    """
-    Simulate an accident by reducing usable road capacity.
+def apply_accident(graph, road):
+    """Increase travel time on a road affected by an accident."""
 
-    Severity determines the capacity reduction.
-    """
+    source, destination = road
 
-    capacity_reduction = {
-        "low": 0.15,
-        "moderate": 0.30,
-        "high": 0.50,
-        "critical": 0.80
-    }
+    if graph.has_edge(source, destination):
+        edge = graph[source][destination]
 
-    if severity not in capacity_reduction:
-        raise ValueError("Invalid accident severity.")
+        edge["event_factor"] = edge.get("event_factor", 1.0) * 3
+        edge["travel_time"] = edge.get(
+            "travel_time",
+            edge.get("distance", 1) / max(edge.get("speed", 1), 0.1)
+        ) * 3
 
-    targets = get_target_edges(graph, road)
-
-    for u, v, key in targets:
-
-        data = graph.edges[u, v, key]
-
-        original_capacity = float(
-            data.get("original_capacity",
-                     data.get("capacity", 600))
-        )
-
-        data["original_capacity"] = original_capacity
-
-        reduction = capacity_reduction[severity]
-
-        data["capacity"] = max(
-            original_capacity * (1 - reduction),
-            1
-        )
-
-        data["accident"] = True
-        data["accident_severity"] = severity
-
-        data["event_factor"] = max(
-            float(data.get("event_factor", 1.0)),
-            1.0
-        ) * 1.5
+        edge["accident"] = True
 
     return graph
 
 
-def apply_flood(
-    graph,
-    road,
-    depth=0.3,
-    severity=None
-):
-    """
-    Simulate flooding.
+def apply_flood(graph, road):
+    """Mark a road as flooded and increase its travel time."""
 
-    Depth is measured in metres.
+    source, destination = road
 
-    Water depth:
-        0.0 - 0.15 m: minor impact
-        0.15 - 0.30 m: moderate impact
-        0.30 - 0.50 m: severe impact
-        Above 0.50 m: road treated as impassable
-    """
+    if graph.has_edge(source, destination):
+        edge = graph[source][destination]
 
-    if depth < 0:
-        raise ValueError(
-            "Flood depth cannot be negative."
-        )
+        edge["event_factor"] = edge.get("event_factor", 1.0) * 2
+        edge["travel_time"] = edge.get(
+            "travel_time",
+            edge.get("distance", 1) / max(edge.get("speed", 1), 0.1)
+        ) * 2
 
-    targets = get_target_edges(graph, road)
-
-    for u, v, key in targets:
-
-        data = graph.edges[u, v, key]
-
-        original_capacity = float(
-            data.get("original_capacity",
-                     data.get("capacity", 600))
-        )
-
-        data["original_capacity"] = original_capacity
-
-        if depth < 0.15:
-            capacity_factor = 0.85
-
-        elif depth < 0.30:
-            capacity_factor = 0.60
-
-        elif depth < 0.50:
-            capacity_factor = 0.25
-
-        else:
-            capacity_factor = 0.0
-
-        data["flooded"] = True
-        data["flood_depth"] = float(depth)
-
-        data["capacity"] = max(
-            original_capacity * capacity_factor,
-            1
-        )
-
-        data["event_factor"] = (
-            float(data.get("event_factor", 1.0))
-            * (1 + depth * 2)
-        )
-
-        # Treat deep flooding as an impassable road.
-        if depth >= 0.50:
-            data["closed"] = True
+        edge["flooded"] = True
 
     return graph
 
 
 def apply_event(graph, event):
     """
-    Apply one event definition to a scenario graph.
+    Dispatch an event to the correct event handler.
+
+    Expected format:
+    {
+        "type": "road_closure",
+        "road": ("J1", "J2")
+    }
     """
 
-    event_type = event["type"]
-    road = event["road"]
+    if not isinstance(event, dict):
+        raise TypeError("Event must be provided as a dictionary.")
 
-    if event_type == "road_closure":
+    event_type = str(event.get("type", "")).lower().strip()
+    road = _get_road(event)
 
-        apply_road_closure(graph, road)
+    handlers = {
+        "road_closure": apply_road_closure,
+        "road closure": apply_road_closure,
+        "accident": apply_accident,
+        "flood": apply_flood,
+    }
 
-    elif event_type == "accident":
+    handler = handlers.get(event_type)
 
-        apply_accident(
-            graph,
-            road,
-            severity=event.get(
-                "severity",
-                "moderate"
-            )
-        )
+    if handler is None:
+        raise ValueError(f"Unknown event type: {event_type}")
 
-    elif event_type == "flood":
-
-        apply_flood(
-            graph,
-            road,
-            depth=event.get(
-                "flood_depth",
-                0.3
-            )
-        )
-
-    return graph
+    return handler(graph, road)
