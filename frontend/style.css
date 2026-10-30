@@ -1,0 +1,511 @@
+import time
+from pathlib import Path
+
+import networkx as nx
+import osmnx as ox
+
+
+# =========================================================
+# NOVACITY - REAL WORLD BENGALURU ROAD NETWORK
+# =========================================================
+
+CITY_NAME = "KR Market, Bengaluru, Karnataka, India"
+
+# K.R. Market coordinates
+CENTER_LAT = 12.9645
+CENTER_LON = 77.5761889
+
+# Download radius in metres
+MAP_DISTANCE = 1200
+
+# Data storage
+CACHE_DIR = Path("data/osm")
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+GRAPH_FILE = CACHE_DIR / "kr_market_drive.graphml"
+
+
+# Alternative public Overpass API servers
+OVERPASS_SERVERS = [
+    "https://overpass.kumi.systems/api",
+    "https://overpass-api.de/api",
+    "https://overpass.private.coffee/api",
+]
+
+
+# =========================================================
+# OSMNX CONFIGURATION
+# =========================================================
+
+def configure_osmnx():
+
+    ox.settings.use_cache = True
+    ox.settings.log_console = True
+
+    ox.settings.timeout = 240
+
+    # Avoid excessive requests to public servers
+    ox.settings.requests_timeout = 240
+
+    ox.settings.overpass_rate_limit = True
+
+
+# =========================================================
+# DOWNLOAD REAL ROAD NETWORK
+# =========================================================
+
+def download_real_city():
+
+    """
+    Download the real driving road network around
+    K.R. Market, Bengaluru, from OpenStreetMap.
+
+    Uses alternative Overpass endpoints and retries.
+    """
+
+    configure_osmnx()
+
+    last_error = None
+
+    print("\n========================================")
+    print(" NOVACITY - BENGALURU MAP DOWNLOAD")
+    print("========================================")
+
+    print(f"Location: {CITY_NAME}")
+    print(f"Latitude: {CENTER_LAT}")
+    print(f"Longitude: {CENTER_LON}")
+    print(f"Radius: {MAP_DISTANCE} metres")
+
+    for server in OVERPASS_SERVERS:
+
+        print("\n----------------------------------------")
+        print(f"Trying server: {server}")
+        print("----------------------------------------")
+
+        ox.settings.overpass_url = server
+
+        for attempt in range(1, 3):
+
+            try:
+
+                print(
+                    f"Download attempt {attempt}/2"
+                )
+
+                graph = ox.graph.graph_from_point(
+                    center_point=(
+                        CENTER_LAT,
+                        CENTER_LON,
+                    ),
+                    dist=MAP_DISTANCE,
+                    network_type="drive",
+                    simplify=True,
+                    retain_all=False,
+                )
+
+                if graph.number_of_nodes() == 0:
+                    raise ValueError(
+                        "Downloaded road network is empty."
+                    )
+
+                # Add estimated speed and travel time
+                graph = ox.add_edge_speeds(graph)
+
+                graph = ox.add_edge_travel_times(graph)
+
+                # Save actual road network
+                ox.save_graphml(
+                    graph,
+                    GRAPH_FILE,
+                )
+
+                print("\nMAP DOWNLOAD SUCCESSFUL")
+
+                print(
+                    "Junctions:",
+                    graph.number_of_nodes(),
+                )
+
+                print(
+                    "Road segments:",
+                    graph.number_of_edges(),
+                )
+
+                return graph
+
+            except Exception as error:
+
+                last_error = error
+
+                print(
+                    f"\nAttempt {attempt} failed:"
+                )
+
+                print(str(error)[:500])
+
+                if attempt == 1:
+
+                    print(
+                        "\nWaiting 15 seconds before retry..."
+                    )
+
+                    time.sleep(15)
+
+    raise RuntimeError(
+        "\nUnable to download the real road network.\n"
+        "All Overpass servers failed.\n"
+        f"Last error: {last_error}\n\n"
+        "Try running the program again later. "
+        "Your existing project files are not affected."
+    )
+
+
+# =========================================================
+# LOAD REAL ROAD NETWORK
+# =========================================================
+
+def load_real_city(force_download=False):
+
+    """
+    Load the cached road network if available.
+    Otherwise download the actual Bengaluru road network.
+    """
+
+    configure_osmnx()
+
+    if GRAPH_FILE.exists() and not force_download:
+
+        print("\nLoading cached Bengaluru road network...")
+
+        try:
+
+            graph = ox.load_graphml(GRAPH_FILE)
+
+            if (
+                graph.number_of_nodes() > 0
+                and graph.number_of_edges() > 0
+            ):
+
+                print("Cached map loaded successfully.")
+
+            else:
+
+                print("Cached map is empty. Downloading again.")
+
+                graph = download_real_city()
+
+        except Exception as error:
+
+            print("Cache loading failed:", error)
+
+            graph = download_real_city()
+
+    else:
+
+        graph = download_real_city()
+
+    return prepare_city(graph)
+
+
+# =========================================================
+# ROAD ATTRIBUTE HELPERS
+# =========================================================
+
+def get_numeric_value(value, default):
+
+    """
+    OSM tags may contain strings or lists.
+    Convert them safely into numeric values.
+    """
+
+    if isinstance(value, list):
+
+        value = value[0] if value else default
+
+    try:
+
+        return float(value)
+
+    except (ValueError, TypeError):
+
+        return float(default)
+
+
+def get_lane_count(value):
+
+    if isinstance(value, list):
+
+        value = value[0] if value else 1
+
+    try:
+
+        return max(1, int(float(value)))
+
+    except (ValueError, TypeError):
+
+        return 1
+
+
+# =========================================================
+# PREPARE CITY FOR SIMULATION
+# =========================================================
+
+def prepare_city(graph):
+
+    """
+    Preserve actual OpenStreetMap geometry and add
+    attributes required by NovaCity simulations.
+    """
+
+    graph.graph["name"] = (
+        "NovaCity - K.R. Market Bengaluru"
+    )
+
+    graph.graph["location"] = CITY_NAME
+
+    graph.graph["map_source"] = "OpenStreetMap"
+
+    graph.graph["center_latitude"] = CENTER_LAT
+
+    graph.graph["center_longitude"] = CENTER_LON
+
+    # -----------------------------------------------------
+    # JUNCTION ATTRIBUTES
+    # -----------------------------------------------------
+
+    for node, data in graph.nodes(data=True):
+
+        data["latitude"] = float(data["y"])
+
+        data["longitude"] = float(data["x"])
+
+        data["signalized"] = False
+
+        data["signal_state"] = "GREEN"
+
+        data["signal_cycle"] = 90
+
+        data["pedestrian_count"] = 0
+
+        data["pedestrian_demand"] = 0.0
+
+        data["activity_level"] = 0.0
+
+        data["accident"] = False
+
+        data["flooded"] = False
+
+        data["incident"] = None
+
+        # Approximate signal placement at major junctions.
+        # This is a simulation assumption, not verified
+        # information about installed Bengaluru traffic lights.
+        degree = graph.degree(node)
+
+        if degree >= 3:
+
+            data["signalized"] = True
+
+            data["signal_id"] = f"SIG_{node}"
+
+        else:
+
+            data["signal_id"] = None
+
+    # -----------------------------------------------------
+    # ROAD ATTRIBUTES
+    # -----------------------------------------------------
+
+    for u, v, key, data in graph.edges(
+        keys=True,
+        data=True,
+    ):
+
+        length = get_numeric_value(
+            data.get("length"),
+            100,
+        )
+
+        speed = get_numeric_value(
+            data.get("speed_kph"),
+            30,
+        )
+
+        lanes = get_lane_count(
+            data.get("lanes", 1)
+        )
+
+        # Approximate hourly capacity.
+        # These are model assumptions, not measured
+        # Bengaluru traffic capacities.
+        capacity = lanes * 600
+
+        road_id = f"{u}_{v}_{key}"
+
+        data["road_id"] = road_id
+
+        data["distance"] = length
+
+        data["length"] = length
+
+        data["speed_limit"] = speed
+
+        data["lanes"] = lanes
+
+        data["capacity"] = capacity
+
+        data["traffic"] = "Low"
+
+        data["utilisation"] = 0.0
+
+        data["congestion_level"] = 0.0
+
+        data["vehicles_per_hour"] = 0.0
+
+        data["vehicle_count"] = 0
+
+        data["queue_length"] = 0
+
+        data["closed"] = False
+
+        data["accident"] = False
+
+        data["flooded"] = False
+
+        data["event_factor"] = 1.0
+
+        data["flood_depth"] = 0.0
+
+        data["travel_time"] = get_numeric_value(
+            data.get("travel_time"),
+            length / max(speed, 1) * 3.6,
+        )
+
+        data["signalized"] = (
+            graph.nodes[u]["signalized"]
+            or graph.nodes[v]["signalized"]
+        )
+
+        # Preserve original OSM attributes:
+        # highway, name, oneway, lanes, maxspeed, etc.
+
+    # -----------------------------------------------------
+    # PEDESTRIAN ACTIVITY ZONES
+    # -----------------------------------------------------
+
+    for node, data in graph.nodes(data=True):
+
+        lat = data["latitude"]
+
+        lon = data["longitude"]
+
+        # Market activity intensity decreases with distance
+        # from the K.R. Market centre.
+        distance = ox.distance.great_circle(
+            CENTER_LAT,
+            CENTER_LON,
+            lat,
+            lon,
+        )
+
+        if distance <= 300:
+
+            demand = 0.95
+
+        elif distance <= 600:
+
+            demand = 0.70
+
+        elif distance <= 900:
+
+            demand = 0.40
+
+        else:
+
+            demand = 0.15
+
+        data["pedestrian_demand"] = demand
+
+        data["activity_level"] = demand
+
+    return graph
+
+
+# =========================================================
+# MAP STATISTICS
+# =========================================================
+
+def get_city_statistics(graph):
+
+    if graph.is_directed():
+
+        components = (
+            nx.number_weakly_connected_components(graph)
+        )
+
+    else:
+
+        components = (
+            nx.number_connected_components(graph)
+        )
+
+    road_types = {}
+
+    for _, _, data in graph.edges(data=True):
+
+        highway = data.get("highway", "unknown")
+
+        if isinstance(highway, list):
+
+            highway = highway[0]
+
+        road_types[highway] = (
+            road_types.get(highway, 0) + 1
+        )
+
+    return {
+
+        "city": graph.graph.get("name"),
+
+        "location": graph.graph.get("location"),
+
+        "map_source": graph.graph.get("map_source"),
+
+        "junctions": graph.number_of_nodes(),
+
+        "road_segments": graph.number_of_edges(),
+
+        "connected_components": components,
+
+        "road_types": road_types,
+
+    }
+
+
+# =========================================================
+# MAIN TEST
+# =========================================================
+
+if __name__ == "__main__":
+
+    city = load_real_city()
+
+    statistics = get_city_statistics(city)
+
+    print("\n========================================")
+
+    print(" NOVACITY REAL MAP STATISTICS")
+
+    print("========================================")
+
+    for key, value in statistics.items():
+
+        print(f"\n{key}:")
+
+        print(value)
+
+    print("\n========================================")
+
+    print("MAP READY FOR SIMULATION")
+
+    print("========================================")

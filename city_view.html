@@ -1,0 +1,2002 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>NovaCity 3D Simulator</title>
+
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    overflow: hidden;
+    background: #07111f;
+    color: #eaf4ff;
+    font-family: Inter, Arial, sans-serif;
+}
+
+#scene {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+}
+
+.panel {
+    position: absolute;
+    z-index: 5;
+    background: rgba(9, 22, 39, 0.88);
+    border: 1px solid rgba(105, 180, 255, 0.19);
+    border-radius: 13px;
+    backdrop-filter: blur(15px);
+    box-shadow: 0 8px 35px rgba(0,0,0,0.3);
+}
+
+#header {
+    top: 16px;
+    left: 18px;
+    right: 18px;
+    height: 62px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 22px;
+}
+
+.brand {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.brand span {
+    color: #36d7ff;
+}
+
+#pageTitle {
+    color: #a8c5df;
+    font-size: 13px;
+}
+
+.status {
+    color: #53e7a5;
+    font-size: 12px;
+}
+
+#leftPanel {
+    top: 94px;
+    left: 18px;
+    width: 225px;
+    padding: 17px;
+}
+
+#rightPanel {
+    top: 94px;
+    right: 18px;
+    width: 225px;
+    padding: 17px;
+}
+
+.panelTitle {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: #7dcfff;
+    margin-bottom: 15px;
+}
+
+.infoRow {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 13px 0;
+    font-size: 12px;
+    color: #a9bfd3;
+}
+
+.infoRow strong {
+    color: #f0f7ff;
+}
+
+.legendItem {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 12px 0;
+    font-size: 12px;
+    color: #c2d5e6;
+}
+
+.dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+}
+
+#bottomPanel {
+    position: absolute;
+    z-index: 5;
+    bottom: 17px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    padding: 12px;
+}
+
+.metric {
+    min-width: 115px;
+    text-align: center;
+    padding: 5px 12px;
+    border-right: 1px solid rgba(255,255,255,0.1);
+}
+
+.metric:last-child {
+    border: none;
+}
+
+.metricValue {
+    font-size: 20px;
+    font-weight: 800;
+    color: #55d9ff;
+}
+
+.metricLabel {
+    font-size: 10px;
+    color: #9db4ca;
+    margin-top: 4px;
+    letter-spacing: 0.8px;
+}
+
+#controls {
+    position: absolute;
+    z-index: 5;
+    right: 18px;
+    bottom: 112px;
+    padding: 12px 15px;
+    font-size: 11px;
+    color: #9eb7cf;
+    line-height: 1.8;
+}
+
+#tooltip {
+    position: absolute;
+    display: none;
+    z-index: 10;
+    pointer-events: none;
+    padding: 9px 12px;
+    border-radius: 8px;
+    background: rgba(4, 14, 26, 0.95);
+    border: 1px solid #28618a;
+    font-size: 12px;
+}
+
+#loading {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #07111f;
+    color: #5cdbff;
+    font-size: 16px;
+}
+
+@media(max-width: 800px) {
+    #leftPanel, #rightPanel {
+        display: none;
+    }
+
+    #bottomPanel {
+        width: 95%;
+        overflow-x: auto;
+    }
+
+    .metric {
+        min-width: 85px;
+    }
+}
+</style>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+}
+</script>
+
+</head>
+
+<body>
+
+<div id="loading">INITIALIZING NOVACITY...</div>
+
+<div id="scene"></div>
+
+<div id="header" class="panel">
+    <div class="brand">NOVA<span>CITY</span></div>
+    <div id="pageTitle">SMART CITY SIMULATION</div>
+    <div class="status">● SYSTEM ONLINE</div>
+</div>
+
+<div id="leftPanel" class="panel">
+    <div class="panelTitle">CITY INFORMATION</div>
+
+```
+<div class="infoRow">
+    <span>Districts</span>
+    <strong id="districtCount">0</strong>
+</div>
+
+<div class="infoRow">
+    <span>Junctions</span>
+    <strong id="junctionCount">0</strong>
+</div>
+
+<div class="infoRow">
+    <span>Road Segments</span>
+    <strong id="roadCount">0</strong>
+</div>
+
+<div class="infoRow">
+    <span>Active Events</span>
+    <strong id="eventCount">0</strong>
+</div>
+
+<br>
+
+<div class="panelTitle">CITY LEGEND</div>
+
+<div class="legendItem">
+    <span class="dot" style="background:#35c9ff"></span>
+    Roads
+</div>
+
+<div class="legendItem">
+    <span class="dot" style="background:#8298b8"></span>
+    Buildings
+</div>
+
+<div class="legendItem">
+    <span class="dot" style="background:#3bd98b"></span>
+    Green spaces
+</div>
+
+<div class="legendItem">
+    <span class="dot" style="background:#ffb84d"></span>
+    Vehicles
+</div>
+
+<div class="legendItem">
+    <span class="dot" style="background:#e8f2ff"></span>
+    Pedestrians
+</div>
+
+<div class="legendItem">
+    <span class="dot" style="background:#ef5367"></span>
+    Disruptions
+</div>
+```
+
+</div>
+
+<div id="rightPanel" class="panel">
+    <div class="panelTitle">LIVE SIMULATION</div>
+
+```
+<div class="infoRow">
+    <span>Commuters</span>
+    <strong id="commuterCount">0</strong>
+</div>
+
+<div class="infoRow">
+    <span>Avg. Commute</span>
+    <strong id="commuteTime">0 min</strong>
+</div>
+
+<div class="infoRow">
+    <span>Affected</span>
+    <strong id="affectedCount">0</strong>
+</div>
+
+<div class="infoRow">
+    <span>Reachable</span>
+    <strong id="reachableCount">0</strong>
+</div>
+
+<br>
+
+<div class="panelTitle">ACTIVE EVENTS</div>
+<div id="eventList" style="font-size:11px;color:#b7cce0;line-height:2">
+    No active disruptions
+</div>
+```
+
+</div>
+
+<div id="bottomPanel" class="panel">
+    <div class="metric">
+        <div class="metricValue" id="vehiclesMetric">0</div>
+        <div class="metricLabel">VEHICLES</div>
+    </div>
+
+```
+<div class="metric">
+    <div class="metricValue" id="peopleMetric">0</div>
+    <div class="metricLabel">PEDESTRIANS</div>
+</div>
+
+<div class="metric">
+    <div class="metricValue" id="buildingsMetric">0</div>
+    <div class="metricLabel">BUILDINGS</div>
+</div>
+
+<div class="metric">
+    <div class="metricValue" id="signalsMetric">0</div>
+    <div class="metricLabel">SIGNALS</div>
+</div>
+
+<div class="metric">
+    <div class="metricValue" id="roadsMetric">0</div>
+    <div class="metricLabel">ROADS</div>
+</div>
+```
+
+</div>
+
+<div id="controls" class="panel">
+    <b style="color:#66d9ff">CAMERA CONTROLS</b><br>
+    Left drag — Rotate<br>
+    Right drag — Pan<br>
+    Scroll — Zoom
+</div>
+
+<div id="tooltip"></div>
+
+<script type="module">
+
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+
+/* =====================================================
+   DATA
+===================================================== */
+
+const DATA = __NOVACITY_DATA__;
+
+const CITY = DATA.city || {};
+const NODES = CITY.nodes || [];
+const ROADS = CITY.roads || [];
+const SUMMARY = DATA.summary || {};
+
+const PAGE = DATA.page || "City Overview";
+
+const sceneContainer = document.getElementById("scene");
+
+
+/* =====================================================
+   SCENE SETUP
+===================================================== */
+
+const scene = new THREE.Scene();
+
+scene.background = new THREE.Color(0x07111f);
+scene.fog = new THREE.Fog(0x07111f, 100, 260);
+
+const camera = new THREE.PerspectiveCamera(
+    55,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000
+);
+
+camera.position.set(65, 75, 85);
+
+const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: false
+});
+
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+sceneContainer.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.maxPolarAngle = Math.PI / 2.05;
+controls.minDistance = 15;
+controls.maxDistance = 220;
+controls.target.set(0, 0, 0);
+
+
+/* =====================================================
+   LIGHTING
+===================================================== */
+
+scene.add(new THREE.HemisphereLight(
+    0x9ecfff,
+    0x142131,
+    2.0
+));
+
+const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+
+sun.position.set(50, 100, 35);
+sun.castShadow = true;
+
+sun.shadow.mapSize.set(2048, 2048);
+
+scene.add(sun);
+
+const ambient = new THREE.AmbientLight(0x5c9bd1, 0.35);
+scene.add(ambient);
+
+
+/* =====================================================
+   GROUPS
+===================================================== */
+
+const groups = {};
+
+[
+    "ground",
+    "roads",
+    "buildings",
+    "trees",
+    "parks",
+    "facilities",
+    "vehicles",
+    "pedestrians",
+    "signals",
+    "flood",
+    "effects"
+].forEach(name => {
+    groups[name] = new THREE.Group();
+    scene.add(groups[name]);
+});
+
+
+/* =====================================================
+   CITY COORDINATES
+===================================================== */
+
+if (!NODES.length) {
+    throw new Error("No city junction data received.");
+}
+
+const xs = NODES.map(n => Number(n.x));
+const zs = NODES.map(n => Number(n.z));
+
+const minX = Math.min(...xs);
+const maxX = Math.max(...xs);
+const minZ = Math.min(...zs);
+const maxZ = Math.max(...zs);
+
+const SCALE = 8;
+
+const centerX = (minX + maxX) / 2;
+const centerZ = (minZ + maxZ) / 2;
+
+function worldX(x) {
+    return (Number(x) - centerX) * SCALE;
+}
+
+function worldZ(z) {
+    return (Number(z) - centerZ) * SCALE;
+}
+
+function nodePosition(node) {
+    return new THREE.Vector3(
+        worldX(node.x),
+        0,
+        worldZ(node.z)
+    );
+}
+
+const nodeMap = new Map();
+
+NODES.forEach(node => {
+    nodeMap.set(String(node.id), node);
+});
+
+const districtNodes = {};
+
+NODES.forEach(node => {
+    const district = node.district || "Central District";
+
+    if (!districtNodes[district]) {
+        districtNodes[district] = [];
+    }
+
+    districtNodes[district].push(node);
+});
+
+
+/* =====================================================
+   MATERIALS
+===================================================== */
+
+const materials = {
+    ground: new THREE.MeshStandardMaterial({
+        color: 0x152b35,
+        roughness: 0.95
+    }),
+
+    road: new THREE.MeshStandardMaterial({
+        color: 0x263746,
+        roughness: 0.9
+    }),
+
+    sidewalk: new THREE.MeshStandardMaterial({
+        color: 0x657784,
+        roughness: 0.9
+    }),
+
+    lane: new THREE.MeshBasicMaterial({
+        color: 0xb6d9e8
+    }),
+
+    building: [
+        0x405c78,
+        0x536b83,
+        0x364f68,
+        0x657b8f,
+        0x455a70
+    ].map(color => new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.55,
+        metalness: 0.22
+    })),
+
+    glass: new THREE.MeshStandardMaterial({
+        color: 0x58c7e8,
+        emissive: 0x164b64,
+        metalness: 0.65,
+        roughness: 0.2
+    }),
+
+    tree: new THREE.MeshStandardMaterial({
+        color: 0x32a76b,
+        roughness: 0.9
+    }),
+
+    trunk: new THREE.MeshStandardMaterial({
+        color: 0x78583e
+    }),
+
+    park: new THREE.MeshStandardMaterial({
+        color: 0x1d6549
+    }),
+
+    water: new THREE.MeshStandardMaterial({
+        color: 0x087fc1,
+        transparent: true,
+        opacity: 0.58,
+        roughness: 0.25,
+        metalness: 0.25
+    })
+};
+
+
+/* =====================================================
+   GROUND AND DISTRICT AREAS
+===================================================== */
+
+const cityWidth = Math.max(120, (maxX - minX) * SCALE + 90);
+const cityDepth = Math.max(110, (maxZ - minZ) * SCALE + 100);
+
+const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(cityWidth + 100, cityDepth + 100),
+    materials.ground
+);
+
+ground.rotation.x = -Math.PI / 2;
+ground.position.y = -0.25;
+ground.receiveShadow = true;
+
+groups.ground.add(ground);
+
+const grid = new THREE.GridHelper(
+    Math.max(cityWidth, cityDepth) + 100,
+    55,
+    0x31576a,
+    0x1c3548
+);
+
+grid.position.y = -0.20;
+groups.ground.add(grid);
+
+
+/* =====================================================
+   ROAD CREATION
+===================================================== */
+
+function makeBox(width, height, depth, material, x, y, z, group) {
+
+    const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(width, height, depth),
+        material
+    );
+
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    group.add(mesh);
+
+    return mesh;
+}
+
+function createRoadSegment(road) {
+
+    const start = new THREE.Vector3(
+        worldX(road.x1), 0, worldZ(road.z1)
+    );
+
+    const end = new THREE.Vector3(
+        worldX(road.x2), 0, worldZ(road.z2)
+    );
+
+    const direction = new THREE.Vector3().subVectors(end, start);
+
+    const length = direction.length();
+
+    const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+
+    const angle = Math.atan2(direction.z, direction.x);
+
+    const roadMaterial = road.closed
+        ? new THREE.MeshStandardMaterial({ color: 0x6e2638 })
+        : road.accident
+            ? new THREE.MeshStandardMaterial({ color: 0x75502c })
+            : road.flooded
+                ? new THREE.MeshStandardMaterial({ color: 0x126c9c })
+                : materials.road;
+
+    const roadMesh = makeBox(
+        length,
+        0.35,
+        7.2,
+        roadMaterial,
+        midpoint.x,
+        0.05,
+        midpoint.z,
+        groups.roads
+    );
+
+    roadMesh.rotation.y = -angle;
+
+    roadMesh.userData = {
+        name: `${road.source} – ${road.target}`,
+        traffic: road.traffic,
+        utilisation: road.utilisation,
+        event: road.event_type
+    };
+
+    // Sidewalk strips.
+    [-1, 1].forEach(side => {
+
+        const offset = new THREE.Vector3(
+            -Math.sin(angle) * 5.1 * side,
+            0.22,
+            Math.cos(angle) * 5.1 * side
+        );
+
+        const sidewalk = makeBox(
+            length,
+            0.28,
+            1.9,
+            materials.sidewalk,
+            midpoint.x + offset.x,
+            offset.y,
+            midpoint.z + offset.z,
+            groups.roads
+        );
+
+        sidewalk.rotation.y = -angle;
+    });
+
+    // Centre lane markings.
+    for (let d = -length / 2 + 3; d < length / 2 - 1; d += 7) {
+
+        const linePosition = midpoint.clone();
+
+        linePosition.x += Math.cos(angle) * d;
+        linePosition.z += Math.sin(angle) * d;
+
+        const line = makeBox(
+            2.8,
+            0.05,
+            0.12,
+            materials.lane,
+            linePosition.x,
+            0.27,
+            linePosition.z,
+            groups.roads
+        );
+
+        line.rotation.y = -angle;
+    }
+
+    // Flood water limited to affected road segments.
+    if (road.flooded) {
+
+        const water = makeBox(
+            length * 0.8,
+            0.12,
+            6.5,
+            materials.water,
+            midpoint.x,
+            0.38,
+            midpoint.z,
+            groups.flood
+        );
+
+        water.rotation.y = -angle;
+    }
+
+    // Event road marker.
+    if (road.closed || road.accident || road.flooded) {
+
+        const markerMaterial = new THREE.MeshBasicMaterial({
+            color: road.closed
+                ? 0xff355e
+                : road.accident
+                    ? 0xffa33b
+                    : 0x27baff
+        });
+
+        const marker = new THREE.Mesh(
+            new THREE.BoxGeometry(3.2, 0.3, 0.35),
+            markerMaterial
+        );
+
+        marker.position.set(midpoint.x, 1.4, midpoint.z);
+        marker.rotation.y = -angle;
+
+        groups.effects.add(marker);
+    }
+}
+
+ROADS.forEach(createRoadSegment);
+
+
+/* =====================================================
+   JUNCTIONS AND CROSSWALKS
+===================================================== */
+
+function createJunctions() {
+
+    const junctionMaterial = new THREE.MeshStandardMaterial({
+        color: 0x354b5a
+    });
+
+    NODES.forEach(node => {
+
+        const position = nodePosition(node);
+
+        const junction = new THREE.Mesh(
+            new THREE.CylinderGeometry(5.8, 5.8, 0.25, 32),
+            junctionMaterial
+        );
+
+        junction.position.set(position.x, 0.22, position.z);
+
+        groups.roads.add(junction);
+
+        // Crosswalk stripes.
+        for (let i = -3; i <= 3; i++) {
+
+            const stripe = makeBox(
+                0.45,
+                0.07,
+                5,
+                materials.lane,
+                position.x + i * 0.85,
+                0.38,
+                position.z + 7,
+                groups.roads
+            );
+
+            stripe.material = new THREE.MeshBasicMaterial({
+                color: 0xdcecf5
+            });
+        }
+    });
+}
+
+createJunctions();
+
+
+/* =====================================================
+   BUILDINGS
+===================================================== */
+
+let buildingCount = 0;
+
+function createBuilding(x, z, width, depth, height, index, type) {
+
+    const material = materials.building[index % materials.building.length];
+
+    const building = new THREE.Group();
+
+    const body = new THREE.Mesh(
+        new THREE.BoxGeometry(width, height, depth),
+        material
+    );
+
+    body.position.y = height / 2;
+    body.castShadow = true;
+    body.receiveShadow = true;
+
+    building.add(body);
+
+    // Horizontal floor separators.
+    for (let y = 1.8; y < height - 0.5; y += 2.2) {
+
+        const frontWindow = new THREE.Mesh(
+            new THREE.BoxGeometry(width * 0.82, 0.55, 0.06),
+            materials.glass
+        );
+
+        frontWindow.position.set(0, y, depth / 2 + 0.04);
+
+        building.add(frontWindow);
+
+        const sideWindow = new THREE.Mesh(
+            new THREE.BoxGeometry(0.06, 0.55, depth * 0.8),
+            materials.glass
+        );
+
+        sideWindow.position.set(width / 2 + 0.04, y, 0);
+
+        building.add(sideWindow);
+    }
+
+    // Roof.
+    const roof = new THREE.Mesh(
+        new THREE.BoxGeometry(width + 0.4, 0.5, depth + 0.4),
+        new THREE.MeshStandardMaterial({
+            color: 0x223b51
+        })
+    );
+
+    roof.position.y = height + 0.25;
+
+    building.add(roof);
+
+    // Roof feature.
+    if (height > 12) {
+
+        const rooftop = new THREE.Mesh(
+            new THREE.BoxGeometry(width * 0.25, 1.3, depth * 0.25),
+            new THREE.MeshStandardMaterial({
+                color: 0x45a9c8
+            })
+        );
+
+        rooftop.position.y = height + 1.15;
+
+        building.add(rooftop);
+    }
+
+    // Entrance.
+    const entrance = new THREE.Mesh(
+        new THREE.BoxGeometry(width * 0.25, 1.8, 0.12),
+        new THREE.MeshStandardMaterial({
+            color: 0x122d43
+        })
+    );
+
+    entrance.position.set(0, 0.9, depth / 2 + 0.08);
+
+    building.add(entrance);
+
+    building.position.set(x, 0, z);
+
+    building.userData.type = type;
+
+    groups.buildings.add(building);
+
+    buildingCount++;
+
+    return building;
+}
+
+
+function createDistrictBuildings() {
+
+    let districtIndex = 0;
+
+    Object.entries(districtNodes).forEach(([district, nodes]) => {
+
+        const positions = nodes.map(nodePosition);
+
+        const cx = positions.reduce((s, p) => s + p.x, 0) / positions.length;
+        const cz = positions.reduce((s, p) => s + p.z, 0) / positions.length;
+
+        // District plaza.
+        const plaza = new THREE.Mesh(
+            new THREE.BoxGeometry(27, 0.18, 23),
+            new THREE.MeshStandardMaterial({
+                color: 0x243b49
+            })
+        );
+
+        plaza.position.set(cx, 0.05, cz);
+        groups.ground.add(plaza);
+
+        // Building positions around each district.
+        const positionsAround = [
+            [-18, -13],
+            [0, -15],
+            [18, -13],
+            [-18, 13],
+            [0, 15],
+            [18, 13],
+            [-27, 0],
+            [27, 0]
+        ];
+
+        positionsAround.forEach((offset, i) => {
+
+            const x = cx + offset[0];
+            const z = cz + offset[1];
+
+            const height = districtIndex === 1
+                ? 12 + (i % 4) * 5
+                : districtIndex === 2
+                    ? 8 + (i % 3) * 4
+                    : 6 + (i % 4) * 3;
+
+            const width = 7 + (i % 3) * 1.5;
+            const depth = 7 + (i % 2) * 2;
+
+            createBuilding(
+                x,
+                z,
+                width,
+                depth,
+                height,
+                districtIndex + i,
+                district
+            );
+        });
+
+        districtIndex++;
+    });
+}
+
+createDistrictBuildings();
+
+
+/* =====================================================
+   PARKS AND TREES
+===================================================== */
+
+function createTree(x, z, scale = 1) {
+
+    const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(
+            0.25 * scale,
+            0.4 * scale,
+            2.5 * scale,
+            8
+        ),
+        materials.trunk
+    );
+
+    trunk.position.set(x, 1.25 * scale, z);
+
+    groups.trees.add(trunk);
+
+    const leaves = new THREE.Mesh(
+        new THREE.SphereGeometry(1.5 * scale, 10, 10),
+        materials.tree
+    );
+
+    leaves.position.set(x, 3.2 * scale, z);
+
+    groups.trees.add(leaves);
+
+    const upperLeaves = new THREE.Mesh(
+        new THREE.SphereGeometry(1.05 * scale, 10, 10),
+        materials.tree
+    );
+
+    upperLeaves.position.set(
+        x + 0.3 * scale,
+        4.1 * scale,
+        z
+    );
+
+    groups.trees.add(upperLeaves);
+}
+
+
+function createParks() {
+
+    Object.values(districtNodes).forEach(nodes => {
+
+        const positions = nodes.map(nodePosition);
+
+        const cx = positions.reduce((s, p) => s + p.x, 0) / positions.length;
+        const cz = positions.reduce((s, p) => s + p.z, 0) / positions.length;
+
+        const park = new THREE.Mesh(
+            new THREE.BoxGeometry(20, 0.22, 16),
+            materials.park
+        );
+
+        park.position.set(cx, 0.2, cz + 29);
+
+        groups.parks.add(park);
+
+        // Tree clusters around the park.
+        for (let i = 0; i < 10; i++) {
+
+            const angle = (i / 10) * Math.PI * 2;
+
+            createTree(
+                cx + Math.cos(angle) * 11,
+                cz + 29 + Math.sin(angle) * 9,
+                0.8 + (i % 3) * 0.12
+            );
+        }
+    });
+
+    // Additional roadside trees.
+    ROADS.forEach(road => {
+
+        const sx = worldX(road.x1);
+        const sz = worldZ(road.z1);
+
+        const ex = worldX(road.x2);
+        const ez = worldZ(road.z2);
+
+        const angle = Math.atan2(ez - sz, ex - sx);
+
+        const midpointX = (sx + ex) / 2;
+        const midpointZ = (sz + ez) / 2;
+
+        const offsetX = -Math.sin(angle) * 9;
+        const offsetZ = Math.cos(angle) * 9;
+
+        createTree(midpointX + offsetX, midpointZ + offsetZ, 0.75);
+        createTree(midpointX - offsetX, midpointZ - offsetZ, 0.75);
+    });
+}
+
+createParks();
+
+
+/* =====================================================
+   CITY FACILITIES
+===================================================== */
+
+function createLabel(text, x, z, color = "#ffffff") {
+
+    const canvas = document.createElement("canvas");
+
+    canvas.width = 512;
+    canvas.height = 128;
+
+    const ctx = canvas.getContext("2d");
+
+    ctx.fillStyle = "rgba(5,17,30,0.85)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.font = "bold 42px Arial";
+    ctx.textAlign = "center";
+    ctx.fillStyle = color;
+
+    ctx.fillText(text, 256, 78);
+
+    const texture = new THREE.CanvasTexture(canvas);
+
+    const sprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true
+        })
+    );
+
+    sprite.position.set(x, 14, z);
+    sprite.scale.set(15, 3.75, 1);
+
+    groups.facilities.add(sprite);
+}
+
+
+function createFacility(name, x, z, color) {
+
+    const base = new THREE.Mesh(
+        new THREE.BoxGeometry(10, 8, 9),
+        new THREE.MeshStandardMaterial({
+            color,
+            roughness: 0.5
+        })
+    );
+
+    base.position.set(x, 4, z);
+    base.castShadow = true;
+
+    groups.facilities.add(base);
+
+    createLabel(name, x, z, "#7deaff");
+}
+
+
+// Add recognizable facilities around district centres.
+let facilityIndex = 0;
+
+Object.entries(districtNodes).forEach(([district, nodes]) => {
+
+    const positions = nodes.map(nodePosition);
+
+    const cx = positions.reduce((s, p) => s + p.x, 0) / positions.length;
+    const cz = positions.reduce((s, p) => s + p.z, 0) / positions.length;
+
+    const facilities = [
+        ["HOSPITAL", -23, -24, 0x397eaa],
+        ["SCHOOL", 23, -24, 0xb58b4c],
+        ["CITY HUB", 0, 31, 0x3a8c88]
+    ];
+
+    facilities.forEach(([name, dx, dz, color]) => {
+
+        createFacility(
+            name,
+            cx + dx,
+            cz + dz,
+            color
+        );
+    });
+
+    createLabel(
+        district.toUpperCase(),
+        cx,
+        cz - 31,
+        "#63d9ff"
+    );
+
+    facilityIndex++;
+});
+
+
+/* =====================================================
+   VEHICLE MODELS
+===================================================== */
+
+const vehicleObjects = [];
+
+function createVehicle(type, color) {
+
+    const vehicle = new THREE.Group();
+
+    const isBus = type === "bus";
+
+    const width = isBus ? 2.7 : 1.65;
+    const length = isBus ? 6.8 : 3.7;
+    const height = isBus ? 2.7 : 1.4;
+
+    const body = new THREE.Mesh(
+        new THREE.BoxGeometry(length, height, width),
+        new THREE.MeshStandardMaterial({
+            color,
+            roughness: 0.38,
+            metalness: 0.35
+        })
+    );
+
+    body.position.y = height / 2 + 0.45;
+
+    vehicle.add(body);
+
+    const glass = new THREE.Mesh(
+        new THREE.BoxGeometry(
+            length * 0.58,
+            height * 0.45,
+            width + 0.02
+        ),
+        new THREE.MeshStandardMaterial({
+            color: 0x9be5ff,
+            metalness: 0.55,
+            roughness: 0.12
+        })
+    );
+
+    glass.position.y = height * 0.82 + 0.45;
+
+    vehicle.add(glass);
+
+    const wheelMaterial = new THREE.MeshStandardMaterial({
+        color: 0x111820
+    });
+
+    for (const side of [-1, 1]) {
+        for (const end of [-1, 1]) {
+
+            const wheel = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.38, 0.38, 0.2, 12),
+                wheelMaterial
+            );
+
+            wheel.rotation.z = Math.PI / 2;
+
+            wheel.position.set(
+                end * length * 0.32,
+                0.38,
+                side * (width / 2 + 0.04)
+            );
+
+            vehicle.add(wheel);
+        }
+    }
+
+    vehicle.userData.type = type;
+
+    groups.vehicles.add(vehicle);
+
+    return vehicle;
+}
+
+
+/* =====================================================
+   ROUTE-BASED VISUAL VEHICLES
+===================================================== */
+
+function extractRouteEdges(route) {
+
+    if (!route) return [];
+
+    if (Array.isArray(route)) {
+        return route.map(String);
+    }
+
+    if (typeof route === "string") {
+        return route.split(",").map(s => s.trim());
+    }
+
+    return [];
+}
+
+
+function getVehiclePath(routeRecord) {
+
+    const route = routeRecord.route
+        || routeRecord.path
+        || routeRecord.nodes
+        || [];
+
+    const ids = extractRouteEdges(route);
+
+    const points = ids
+        .map(id => nodeMap.get(String(id)))
+        .filter(Boolean)
+        .map(nodePosition);
+
+    if (points.length >= 2) return points;
+
+    return null;
+}
+
+
+function getRoadPaths() {
+
+    return ROADS.map(road => {
+
+        return [
+            new THREE.Vector3(
+                worldX(road.x1),
+                0.55,
+                worldZ(road.z1)
+            ),
+            new THREE.Vector3(
+                worldX(road.x2),
+                0.55,
+                worldZ(road.z2)
+            )
+        ];
+    });
+}
+
+const roadPaths = getRoadPaths();
+
+
+function createVehicles() {
+
+    const density = Number(DATA.vehicle_density ?? 50);
+
+    const count = Math.max(
+        0,
+        Math.round(density * 0.65)
+    );
+
+    const routeRecords = DATA.routes || [];
+
+    const validRoutes = routeRecords
+        .map(record => ({
+            record,
+            points: getVehiclePath(record)
+        }))
+        .filter(item => item.points && item.points.length >= 2);
+
+    for (let i = 0; i < count; i++) {
+
+        const isBus = i % Math.max(3, 13 - Number(DATA.bus_frequency || 0)) === 0;
+
+        const color = isBus
+            ? 0x13b8c9
+            : [0xffa63d, 0x46a5ff, 0xe5eaf0, 0xe65d72][i % 4];
+
+        const vehicle = createVehicle(
+            isBus ? "bus" : "car",
+            color
+        );
+
+        let path;
+
+        if (validRoutes.length) {
+
+            const routeItem = validRoutes[i % validRoutes.length];
+
+            path = routeItem.points;
+
+        } else {
+
+            path = roadPaths[i % Math.max(1, roadPaths.length)];
+        }
+
+        if (!path || path.length < 2) continue;
+
+        vehicleObjects.push({
+            object: vehicle,
+            path,
+            progress: Math.random(),
+            speed: 0.0005 + Math.random() * 0.00045,
+            stopped: false
+        });
+    }
+}
+
+createVehicles();
+
+
+/* =====================================================
+   PEDESTRIAN MODELS
+===================================================== */
+
+const pedestrianObjects = [];
+
+function createPerson() {
+
+    const person = new THREE.Group();
+
+    const skin = new THREE.MeshStandardMaterial({
+        color: 0xe0ae86
+    });
+
+    const shirtColors = [
+        0xff7a59,
+        0x47b6d5,
+        0x8f77e8,
+        0x56c58a,
+        0xe7bb54
+    ];
+
+    const shirt = new THREE.MeshStandardMaterial({
+        color: shirtColors[
+            Math.floor(Math.random() * shirtColors.length)
+        ]
+    });
+
+    const torso = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.28, 0.65, 4, 8),
+        shirt
+    );
+
+    torso.position.y = 1.15;
+
+    person.add(torso);
+
+    const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.23, 12, 12),
+        skin
+    );
+
+    head.position.y = 1.85;
+
+    person.add(head);
+
+    const legs = [];
+
+    for (const side of [-1, 1]) {
+
+        const leg = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.10, 0.12, 0.65, 8),
+            new THREE.MeshStandardMaterial({
+                color: 0x283b54
+            })
+        );
+
+        leg.position.set(side * 0.13, 0.48, 0);
+
+        person.add(leg);
+        legs.push(leg);
+    }
+
+    person.userData.legs = legs;
+
+    groups.pedestrians.add(person);
+
+    return person;
+}
+
+
+function createPedestrians() {
+
+    const activity = Number(DATA.pedestrian_activity ?? 40);
+
+    const count = Math.round(activity * 0.65);
+
+    for (let i = 0; i < count; i++) {
+
+        const person = createPerson();
+
+        const road = ROADS[i % Math.max(1, ROADS.length)];
+
+        const sx = worldX(road.x1);
+        const sz = worldZ(road.z1);
+
+        const ex = worldX(road.x2);
+        const ez = worldZ(road.z2);
+
+        pedestrianObjects.push({
+            object: person,
+            start: new THREE.Vector3(sx, 0, sz),
+            end: new THREE.Vector3(ex, 0, ez),
+            progress: Math.random(),
+            speed: 0.00025 + Math.random() * 0.0003,
+            phase: Math.random() * Math.PI * 2
+        });
+    }
+}
+
+createPedestrians();
+
+
+/* =====================================================
+   TRAFFIC SIGNALS
+===================================================== */
+
+const signalObjects = [];
+
+function createSignal(node) {
+
+    const position = nodePosition(node);
+
+    const poleMaterial = new THREE.MeshStandardMaterial({
+        color: 0x697887,
+        metalness: 0.7
+    });
+
+    const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.12, 0.15, 4, 10),
+        poleMaterial
+    );
+
+    pole.position.set(position.x + 5.8, 2, position.z + 5.8);
+
+    groups.signals.add(pole);
+
+    const housing = new THREE.Mesh(
+        new THREE.BoxGeometry(0.85, 2.1, 0.65),
+        new THREE.MeshStandardMaterial({
+            color: 0x111820
+        })
+    );
+
+    housing.position.set(
+        position.x + 5.8,
+        4.7,
+        position.z + 5.8
+    );
+
+    groups.signals.add(housing);
+
+    const bulbs = [];
+
+    const colors = [
+        0xff304d,
+        0xffc247,
+        0x36e68c
+    ];
+
+    colors.forEach((color, index) => {
+
+        const bulb = new THREE.Mesh(
+            new THREE.SphereGeometry(0.22, 12, 12),
+            new THREE.MeshStandardMaterial({
+                color,
+                emissive: color,
+                emissiveIntensity: 0.15
+            })
+        );
+
+        bulb.position.set(
+            position.x + 5.8,
+            5.35 - index * 0.65,
+            position.z + 5.45
+        );
+
+        groups.signals.add(bulb);
+
+        bulbs.push(bulb);
+    });
+
+    signalObjects.push({
+        bulbs,
+        phase: Math.random() * 12,
+        nodeId: String(node.id),
+        position: position.clone()
+    });
+}
+
+NODES.forEach(createSignal);
+
+
+/* =====================================================
+   PAGE VISIBILITY
+===================================================== */
+
+function setVisibility(name, visible) {
+    groups[name].visible = visible;
+}
+
+function configurePage() {
+
+    const visibility = {
+        ground: true,
+        roads: true,
+        buildings: true,
+        trees: true,
+        parks: true,
+        facilities: true,
+        vehicles: true,
+        pedestrians: true,
+        signals: true,
+        flood: true,
+        effects: true
+    };
+
+    switch (PAGE) {
+
+        case "Road & Traffic":
+
+            visibility.buildings = false;
+            visibility.facilities = false;
+            visibility.parks = false;
+
+            break;
+
+        case "Pedestrian Mobility":
+
+            visibility.buildings = false;
+            visibility.facilities = false;
+            visibility.parks = false;
+            visibility.vehicles = false;
+
+            break;
+
+        case "Traffic Signals":
+
+            visibility.buildings = false;
+            visibility.facilities = false;
+            visibility.parks = false;
+            visibility.pedestrians = false;
+
+            break;
+
+        case "Flood & Environment":
+
+            visibility.vehicles = false;
+            visibility.pedestrians = false;
+            visibility.signals = false;
+
+            break;
+
+        case "Infrastructure":
+
+            visibility.vehicles = false;
+            visibility.pedestrians = false;
+            visibility.signals = false;
+            visibility.flood = false;
+
+            break;
+
+        case "3D City Explorer":
+        case "City Overview":
+        default:
+            break;
+    }
+
+    Object.entries(visibility).forEach(([name, visible]) => {
+        setVisibility(name, visible);
+    });
+}
+
+configurePage();
+
+
+/* =====================================================
+   CAMERA INITIALIZATION
+===================================================== */
+
+const initialCameraDistance = Math.max(
+    cityWidth,
+    cityDepth
+) * 0.75;
+
+camera.position.set(
+    initialCameraDistance * 0.65,
+    initialCameraDistance * 0.65,
+    initialCameraDistance * 0.8
+);
+
+controls.target.set(0, 0, 0);
+controls.update();
+
+
+/* =====================================================
+   METRICS AND INFORMATION
+===================================================== */
+
+document.getElementById("pageTitle").textContent =
+    PAGE.toUpperCase();
+
+document.getElementById("districtCount").textContent =
+    Object.keys(districtNodes).length;
+
+document.getElementById("junctionCount").textContent =
+    NODES.length;
+
+document.getElementById("roadCount").textContent =
+    ROADS.length;
+
+document.getElementById("eventCount").textContent =
+    (DATA.events || []).length;
+
+document.getElementById("commuterCount").textContent =
+    SUMMARY.total_commuters ?? 0;
+
+document.getElementById("commuteTime").textContent =
+    `${Number(SUMMARY.average_commute_time || 0).toFixed(1)} min`;
+
+document.getElementById("affectedCount").textContent =
+    SUMMARY.affected_commuters ?? 0;
+
+document.getElementById("reachableCount").textContent =
+    SUMMARY.reachable_commuters ?? 0;
+
+document.getElementById("vehiclesMetric").textContent =
+    vehicleObjects.length;
+
+document.getElementById("peopleMetric").textContent =
+    pedestrianObjects.length;
+
+document.getElementById("buildingsMetric").textContent =
+    buildingCount;
+
+document.getElementById("signalsMetric").textContent =
+    signalObjects.length;
+
+document.getElementById("roadsMetric").textContent =
+    ROADS.length;
+
+const events = DATA.events || [];
+
+document.getElementById("eventList").innerHTML =
+    events.length
+        ? events.map(event =>
+            `<div>● ${String(event.type).replaceAll("_", " ").toUpperCase()}<br>
+            <span style="color:#7f9cb7">${event.road.join(" ↔ ")}</span></div>`
+        ).join("")
+        : "No active disruptions";
+
+
+/* =====================================================
+   INTERACTION AND ROAD TOOLTIP
+===================================================== */
+
+const raycaster = new THREE.Raycaster();
+
+const mouse = new THREE.Vector2();
+
+const tooltip = document.getElementById("tooltip");
+
+renderer.domElement.addEventListener("pointermove", event => {
+
+    const rect = renderer.domElement.getBoundingClientRect();
+
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+
+    const hits = raycaster.intersectObjects(
+        groups.roads.children,
+        true
+    );
+
+    const hit = hits.find(item => item.object.userData.name);
+
+    if (hit) {
+
+        const data = hit.object.userData;
+
+        tooltip.style.display = "block";
+
+        tooltip.style.left = `${event.clientX + 12}px`;
+        tooltip.style.top = `${event.clientY + 12}px`;
+
+        tooltip.innerHTML = `
+            <b>${data.name}</b><br>
+            Traffic: ${Number(data.traffic || 0).toFixed(1)} vehicles/hr<br>
+            Utilisation: ${Number(data.utilisation || 0).toFixed(2)}
+            ${data.event ? `<br>Event: ${data.event}` : ""}
+        `;
+
+    } else {
+
+        tooltip.style.display = "none";
+    }
+});
+
+
+/* =====================================================
+   ANIMATION
+===================================================== */
+
+const clock = new THREE.Clock();
+
+let animationTime = 0;
+
+
+function updateVehicles(delta) {
+
+    vehicleObjects.forEach(vehicleData => {
+
+        const path = vehicleData.path;
+
+        if (!path || path.length < 2) return;
+
+        const segmentCount = path.length - 1;
+
+        const totalProgress =
+            vehicleData.progress * segmentCount;
+
+        const segmentIndex = Math.min(
+            Math.floor(totalProgress),
+            segmentCount - 1
+        );
+
+        const localProgress =
+            totalProgress - segmentIndex;
+
+        const start = path[segmentIndex];
+        const end = path[segmentIndex + 1];
+
+        // Check whether the vehicle is approaching a signal.
+        const approachingNode = NODES.find(node => {
+
+            const nodePos = nodePosition(node);
+
+            return nodePos.distanceTo(end) < 0.5;
+        });
+
+        let shouldStop = false;
+
+        if (approachingNode) {
+
+            const signal = signalObjects.find(
+                item => item.nodeId === String(approachingNode.id)
+            );
+
+            if (signal) {
+
+                const signalState = getSignalState(signal);
+
+                // Stop close to the junction when the signal is red.
+                if (
+                    signalState === "RED" &&
+                    localProgress > 0.72
+                ) {
+                    shouldStop = true;
+                }
+            }
+        }
+
+        const position = new THREE.Vector3().lerpVectors(
+            start,
+            end,
+            localProgress
+        );
+
+        vehicleData.object.position.set(
+            position.x,
+            0.1,
+            position.z
+        );
+
+        const direction = new THREE.Vector3().subVectors(
+            end,
+            start
+        );
+
+        vehicleData.object.rotation.y =
+            -Math.atan2(direction.z, direction.x);
+
+        vehicleData.stopped = shouldStop;
+
+        // Move only when the signal permits it.
+        if (!shouldStop) {
+
+            vehicleData.progress +=
+                vehicleData.speed * delta * 60;
+        }
+
+        if (vehicleData.progress >= 1) {
+            vehicleData.progress = 0;
+        }
+    });
+}
+
+
+function updatePedestrians(delta) {
+
+    pedestrianObjects.forEach(personData => {
+
+        const position = new THREE.Vector3().lerpVectors(
+            personData.start,
+            personData.end,
+            personData.progress
+        );
+
+        const direction = new THREE.Vector3().subVectors(
+            personData.end,
+            personData.start
+        );
+
+        const sideOffset = 4.6;
+
+        const side = new THREE.Vector3(
+            -direction.z,
+            0,
+            direction.x
+        ).normalize().multiplyScalar(sideOffset);
+
+        personData.object.position.set(
+            position.x + side.x,
+            0,
+            position.z + side.z
+        );
+
+        personData.object.rotation.y =
+            -Math.atan2(direction.z, direction.x);
+
+        const walk = Math.sin(
+            animationTime * 7 + personData.phase
+        ) * 0.25;
+
+        personData.object.userData.legs.forEach((leg, index) => {
+            leg.rotation.z = index === 0 ? walk : -walk;
+        });
+
+        personData.progress += personData.speed * delta * 60;
+
+        if (personData.progress >= 1) {
+            personData.progress = 0;
+        }
+    });
+}
+
+
+function getSignalState(signal) {
+
+    const phase = (animationTime + signal.phase) % 12;
+
+    if (phase < 5) return "RED";
+    if (phase < 6) return "YELLOW";
+
+    return "GREEN";
+}
+
+
+
+
+
+function updateSignals() {
+
+    signalObjects.forEach(signal => {
+
+        const state = getSignalState(signal);
+
+        const activeIndex = {
+            RED: 0,
+            YELLOW: 1,
+            GREEN: 2
+        }[state];
+
+        signal.bulbs.forEach((bulb, index) => {
+
+            const active = index === activeIndex;
+
+            bulb.material.emissiveIntensity =
+                active ? 2.5 : 0.05;
+        });
+    });
+}
+
+function animate() {
+
+    requestAnimationFrame(animate);
+
+    const delta = Math.min(clock.getDelta(), 0.05);
+
+    animationTime += delta;
+
+    updateVehicles(delta);
+    updatePedestrians(delta);
+    updateSignals();
+
+    controls.update();
+
+    renderer.render(scene, camera);
+}
+
+
+/* =====================================================
+   RESIZE
+===================================================== */
+
+window.addEventListener("resize", () => {
+
+    camera.aspect = window.innerWidth / window.innerHeight;
+
+    camera.updateProjectionMatrix();
+
+    renderer.setSize(
+        window.innerWidth,
+        window.innerHeight
+    );
+});
+
+
+/* =====================================================
+   START
+===================================================== */
+
+document.getElementById("loading").style.display = "none";
+
+animate();
+
+</script>
+
+</body>
+</html>
