@@ -7,7 +7,7 @@ from src.simulation.commuters import generate_commuters
 from src.simulation.routing import calculate_all_routes
 
 
-def calculate_traffic(city, routes, simulation_hours=3):
+def calculate_traffic(city, routes, simulation_hours=3,traffic_factor=1.0):
     """
     Calculate traffic volume, road utilisation and congestion-adjusted
     travel time for every road in the city.
@@ -93,9 +93,8 @@ def calculate_traffic(city, routes, simulation_hours=3):
         ) * 60
 
         # Simplified BPR-style congestion model.
-        congestion_factor = (
-            1 + 0.15 * (utilisation_ratio ** 4)
-        )
+        effective_utilisation = utilisation_ratio * traffic_factor
+        congestion_factor = 1 + 0.15 * effective_utilisation**4
 
         event_factor = data.get("event_factor", 1.0)
 
@@ -127,7 +126,7 @@ def calculate_traffic(city, routes, simulation_hours=3):
     return pd.DataFrame(road_results)
 
 
-def run_congestion_simulation(city, commuters, simulation_hours=3, iterations=3):
+def run_congestion_simulation(city, commuters, simulation_hours=3, iterations=3, traffic_factor=1.0):
     """
     Run an iterative traffic simulation.
     Routes are recalculated using congestion-adjusted travel times.
@@ -150,7 +149,7 @@ def run_congestion_simulation(city, commuters, simulation_hours=3, iterations=3)
     baseline_routes = calculate_all_routes(city, commuters)
 
     baseline_traffic = calculate_traffic(
-        city, baseline_routes, simulation_hours
+        city, baseline_routes, simulation_hours,traffic_factor=traffic_factor
     )
 
     current_routes = baseline_routes
@@ -164,7 +163,7 @@ def run_congestion_simulation(city, commuters, simulation_hours=3, iterations=3)
         current_routes = calculate_all_routes(city, commuters)
 
         current_traffic = calculate_traffic(
-            city, current_routes, simulation_hours
+            city, current_routes, simulation_hours,traffic_factor=traffic_factor
         )
 
     # Count commuters whose routes changed.
