@@ -1,6 +1,11 @@
 import json
 import math
 from pathlib import Path
+from src.geographic.map_simulator import (
+    load_area,
+    simulate_area,
+    to_json,
+)
 
 import pandas as pd
 import streamlit as st
@@ -257,10 +262,22 @@ def extract_simulation_data(results):
 
 def get_city_payload(graph, traffic_df=None, events=None):
 
+    import networkx as nx
+
+    # --------------------------------------------------------
+    # INITIALIZATION
+    # --------------------------------------------------------
+
     nodes = []
     roads = []
+    node_positions = {}
 
     traffic_lookup = {}
+    event_lookup = {}
+
+    # --------------------------------------------------------
+    # TRAFFIC DATA LOOKUP
+    # --------------------------------------------------------
 
     if isinstance(traffic_df, pd.DataFrame):
 
@@ -274,27 +291,35 @@ def get_city_payload(graph, traffic_df=None, events=None):
 
             traffic_lookup[road_key(start, end)] = {
                 "vehicles": safe_value(row.get("vehicles", 0)),
+
                 "vehicles_per_hour": safe_value(
                     row.get("vehicles_per_hour", 0)
                 ),
+
                 "utilisation": safe_value(
                     row.get("utilisation", 0)
                 ),
+
                 "queue_length": safe_value(
                     row.get("queue_length", 0)
                 ),
+
                 "travel_time": safe_value(
                     row.get("travel_time", 0)
                 ),
+
                 "traffic_level": safe_value(
                     row.get("traffic_level", "low")
                 ),
+
                 "closed": bool(row.get("closed", False)),
                 "accident": bool(row.get("accident", False)),
                 "flooded": bool(row.get("flooded", False)),
             }
 
-    event_lookup = {}
+    # --------------------------------------------------------
+    # EVENT LOOKUP
+    # --------------------------------------------------------
 
     for event in events or []:
 
@@ -312,19 +337,27 @@ def get_city_payload(graph, traffic_df=None, events=None):
 
     for node, attributes in graph.nodes(data=True):
 
-        nodes.append(
-            {
-                "id": str(node),
-                "x": safe_value(attributes.get("x", 0)),
-                "z": safe_value(attributes.get("y", 0)),
-                "district": str(
-                    attributes.get("district", "Central District")
-                ),
-                "type": str(
+        x = safe_value(attributes.get("x", 0))
+        z = safe_value(attributes.get("y", 0))
+
+        node_positions[node] = (x, z)
+
+        nodes.append({
+            "id": str(node),
+            "x": x,
+            "z": z,
+
+            "district": str(
+                attributes.get("district", "Central District")
+            ),
+
+            "type": str(
+                attributes.get(
+                    "node_type",
                     attributes.get("type", "junction")
-                ),
-            }
-        )
+                )
+            ),
+        })
 
     # --------------------------------------------------------
     # ROADS
@@ -332,8 +365,14 @@ def get_city_payload(graph, traffic_df=None, events=None):
 
     for source, destination, attributes in graph.edges(data=True):
 
-        source_data = graph.nodes[source]
-        destination_data = graph.nodes[destination]
+        if (
+            source not in node_positions
+            or destination not in node_positions
+        ):
+            continue
+
+        x1, z1 = node_positions[source]
+        x2, z2 = node_positions[destination]
 
         key = road_key(source, destination)
 
@@ -356,75 +395,88 @@ def get_city_payload(graph, traffic_df=None, events=None):
             or traffic_data.get("flooded", False)
         )
 
-        roads.append(
-            {
-                "source": str(source),
-                "target": str(destination),
+        roads.append({
 
-                "x1": safe_value(
-                    source_data.get("x", 0)
-                ),
+            "source": str(source),
+            "target": str(destination),
 
-                "z1": safe_value(
-                    source_data.get("y", 0)
-                ),
+            "x1": x1,
+            "z1": z1,
 
-                "x2": safe_value(
-                    destination_data.get("x", 0)
-                ),
+            "x2": x2,
+            "z2": z2,
 
-                "z2": safe_value(
-                    destination_data.get("y", 0)
-                ),
+            "distance": safe_value(
+                attributes.get("distance", 1)
+            ),
 
-                "distance": safe_value(
-                    attributes.get("distance", 1)
-                ),
+            "capacity": safe_value(
+                attributes.get("capacity", 100)
+            ),
 
-                "capacity": safe_value(
-                    attributes.get("capacity", 100)
-                ),
+            "speed": safe_value(
+                attributes.get("speed", 40)
+            ),
 
-                "speed": safe_value(
-                    attributes.get("speed", 40)
-                ),
+            "traffic": traffic_data.get(
+                "vehicles_per_hour",
+                safe_value(attributes.get("traffic", 0))
+            ),
 
-                "traffic": traffic_data.get(
-                    "vehicles_per_hour",
-                    safe_value(attributes.get("traffic", 0)),
-                ),
+            "vehicles": traffic_data.get("vehicles", 0),
 
-                "vehicles": traffic_data.get("vehicles", 0),
+            "utilisation": traffic_data.get(
+                "utilisation", 0
+            ),
 
-                "utilisation": traffic_data.get(
-                    "utilisation", 0
-                ),
+            "queue_length": traffic_data.get(
+                "queue_length", 0
+            ),
 
-                "queue_length": traffic_data.get(
-                    "queue_length", 0
-                ),
+            "travel_time": traffic_data.get(
+                "travel_time", 0
+            ),
 
-                "travel_time": traffic_data.get(
-                    "travel_time", 0
-                ),
+            "traffic_level": traffic_data.get(
+                "traffic_level", "low"
+            ),
 
-                "traffic_level": traffic_data.get(
-                    "traffic_level", "low"
-                ),
+            "closed": closed,
+            "accident": accident,
+            "flooded": flooded,
 
-                "closed": closed,
-                "accident": accident,
-                "flooded": flooded,
+            "event_type": event_type,
+        })
 
-                "event_type": event_type,
-            }
+    # --------------------------------------------------------
+    # DIAGNOSTICS
+    # --------------------------------------------------------
+
+    if graph.is_directed():
+        connected = nx.is_weakly_connected(graph)
+    else:
+        connected = nx.is_connected(graph)
+
+    print("\n========== NOVACITY GRAPH ==========")
+    print("CITY GRAPH CONNECTED:", connected)
+    print("TOTAL JUNCTIONS:", len(nodes))
+    print("TOTAL ROADS:", len(roads))
+
+    for road in roads:
+        print(
+            road["source"], "->", road["target"],
+            "| Start:", road["x1"], road["z1"],
+            "| End:", road["x2"], road["z2"],
+            "| Closed:", road["closed"],
+            "| Accident:", road["accident"]
         )
+
+    print("====================================\n")
 
     return {
         "nodes": nodes,
         "roads": roads,
     }
-
 
 # ============================================================
 # NAVIGATION
@@ -433,6 +485,997 @@ def get_city_payload(graph, traffic_df=None, events=None):
 st.sidebar.markdown("# 🏙️ NovaCity")
 st.sidebar.caption("Fictional City Simulation Platform")
 
+st.sidebar.divider()
+
+application_mode = st.sidebar.radio(
+    "APPLICATION MODE",
+    [
+        "Fictional City Simulator",
+        "Real Geographic Digital Twin",
+    ],
+)
+
+st.sidebar.divider()
+
+# ============================================================
+# REAL GEOGRAPHIC DIGITAL TWIN
+# ============================================================
+
+if application_mode == "Real Geographic Digital Twin":
+
+    st.title("🌍 NovaCity — Real Geographic Digital Twin")
+
+    st.caption(
+        "Real OpenStreetMap road networks with animated "
+        "synthetic urban traffic."
+    )
+
+    # --------------------------------------------------------
+    # CACHED GEOGRAPHICAL DOWNLOAD
+    # --------------------------------------------------------
+
+    @st.cache_data(
+        ttl=3600,
+        show_spinner=False
+    )
+    def get_geographic_area(place, radius, buildings):
+
+        return load_area(
+            place,
+            radius,
+            buildings
+        )
+
+    # --------------------------------------------------------
+    # SESSION STATE
+    # --------------------------------------------------------
+
+    defaults = {
+        "real_graph": None,
+        "real_roads": None,
+        "real_buildings": None,
+        "real_edges": None,
+        "real_meta": None,
+        "real_simulation": None,
+        "real_loaded_place": None,
+    }
+
+    for key, value in defaults.items():
+
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+    # --------------------------------------------------------
+    # LOCATION CONTROLS
+    # --------------------------------------------------------
+
+    with st.sidebar:
+
+        st.subheader("📍 Geographic Location")
+
+        location = st.text_input(
+            "Search locality",
+            value="Whitefield, Bengaluru, India",
+            key="real_location"
+        )
+
+        radius = st.select_slider(
+            "Coverage radius",
+            options=[
+                500,
+                750,
+                1000,
+                1500,
+                2000
+            ],
+            value=1000,
+            format_func=lambda x: f"{x} metres"
+        )
+
+        download_buildings = st.checkbox(
+            "Download 3D building footprints",
+            value=False
+        )
+
+        load_button = st.button(
+            "🌍 Load City",
+            type="primary",
+            use_container_width=True
+        )
+
+        st.divider()
+
+        st.subheader("🚗 Traffic")
+
+        vehicle_count = st.slider(
+            "Vehicle population",
+            20,
+            150,
+            80,
+            10
+        )
+
+        event = st.selectbox(
+            "Urban incident",
+            [
+                "None",
+                "Accident",
+                "Flood",
+                "Road Closure"
+            ]
+        )
+
+    # --------------------------------------------------------
+    # LOAD CITY
+    # --------------------------------------------------------
+
+    if load_button:
+
+        if not location.strip():
+
+            st.error("Enter a location.")
+
+        else:
+
+            try:
+
+                with st.spinner(
+                    "Downloading geographical road data..."
+                ):
+
+                    (
+                        graph,
+                        roads,
+                        buildings,
+                        edges,
+                        meta
+                    ) = get_geographic_area(
+                        location.strip(),
+                        radius,
+                        download_buildings
+                    )
+
+                st.session_state.real_graph = graph
+
+                st.session_state.real_roads = roads
+
+                st.session_state.real_buildings = buildings
+
+                st.session_state.real_edges = edges
+
+                st.session_state.real_meta = meta
+
+                st.session_state.real_loaded_place = location.strip()
+
+                st.session_state.real_simulation = None
+
+                st.success("Geographical city loaded.")
+
+            except Exception as error:
+
+                st.error(f"Geographical loading failed: {error}")
+
+    # --------------------------------------------------------
+    # CHECK LOADED CITY
+    # --------------------------------------------------------
+
+    if st.session_state.real_graph is None:
+
+        st.info(
+            "Enter a locality and click Load City to begin."
+        )
+
+        st.stop()
+
+    graph = st.session_state.real_graph
+
+    roads = st.session_state.real_roads
+
+    buildings = st.session_state.real_buildings
+
+    edges = st.session_state.real_edges
+
+    meta = st.session_state.real_meta
+
+    # --------------------------------------------------------
+    # CITY METRICS
+    # --------------------------------------------------------
+
+    st.subheader(meta["place"])
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric(
+        "Intersections",
+        f"{meta['intersections']:,}"
+    )
+
+    c2.metric(
+        "Road segments",
+        f"{meta['road_segments']:,}"
+    )
+
+    c3.metric(
+        "Buildings",
+        f"{meta['buildings']:,}"
+    )
+
+    c4.metric(
+        "Coverage",
+        f"{meta['radius_m']} m"
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # INCIDENT ROAD
+    # --------------------------------------------------------
+
+    selected_edge_id = None
+
+    if event != "None" and edges:
+
+        selected_edge = st.selectbox(
+            "Select affected road",
+            options=edges,
+            format_func=lambda e: (
+                f"{e['name']} — {e['length']:.0f} m"
+            ),
+            key="real_affected_road"
+        )
+
+        selected_edge_id = selected_edge["id"]
+
+    # --------------------------------------------------------
+    # SIMULATION
+    # --------------------------------------------------------
+
+    run = st.button(
+        "▶ Generate Traffic Simulation",
+        type="primary",
+        use_container_width=True
+    )
+
+    if run:
+
+        try:
+
+            with st.spinner(
+                "Calculating routes and generating traffic..."
+            ):
+
+                st.session_state.real_simulation = simulate_area(
+                    graph=graph,
+                    roads_geojson=roads,
+                    edge_options=edges,
+                    event_type=event,
+                    affected_edge_id=selected_edge_id,
+                    vehicle_count=vehicle_count,
+                    seed=17
+                )
+
+        except Exception as error:
+
+            st.error(f"Simulation error: {error}")
+
+    sim = st.session_state.real_simulation
+
+    # --------------------------------------------------------
+    # DEFAULT EMPTY SIMULATION
+    # --------------------------------------------------------
+
+    if sim is None:
+
+        sim = {
+            "routes": [],
+            "vehicles": [],
+            "incident": None,
+            "vehicle_count": 0,
+            "rerouted": 0,
+            "event_type": "None"
+        }
+
+        st.info(
+            "Click Generate Traffic Simulation to animate vehicles."
+        )
+
+    # --------------------------------------------------------
+    # SIMULATION METRICS
+    # --------------------------------------------------------
+
+    a, b, c = st.columns(3)
+
+    a.metric(
+        "Vehicles",
+        sim["vehicle_count"]
+    )
+
+    b.metric(
+        "Rerouted",
+        sim["rerouted"]
+    )
+
+    c.metric(
+        "Incident",
+        sim["event_type"]
+    )
+
+    # --------------------------------------------------------
+    # MAP DATA
+    # --------------------------------------------------------
+
+    payload = {
+
+        "center": [
+            meta["longitude"],
+            meta["latitude"]
+        ],
+
+        "place": meta["place"],
+
+        "roads": roads,
+
+        "buildings": buildings,
+
+        "routes": sim["routes"],
+
+        "vehicles": sim["vehicles"],
+
+        "incident": sim["incident"],
+
+    }
+
+    # --------------------------------------------------------
+    # MAP HTML
+    # --------------------------------------------------------
+
+    html = r"""
+<!DOCTYPE html>
+<html>
+<head>
+
+<meta charset="utf-8">
+
+<meta name="viewport"
+content="width=device-width, initial-scale=1">
+
+<link
+href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+rel="stylesheet"
+/>
+
+<style>
+
+html, body, #map {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #091522;
+}
+
+#map {
+    position: absolute;
+    inset: 0;
+}
+
+#hud {
+    position: absolute;
+    z-index: 5;
+    top: 12px;
+    left: 12px;
+    padding: 12px;
+    border-radius: 10px;
+    color: white;
+    background: rgba(7,19,33,.94);
+    font: 13px Arial;
+}
+
+#status {
+    color: #61d9ce;
+}
+
+#play {
+    position: absolute;
+    z-index: 5;
+    top: 12px;
+    right: 12px;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 8px;
+    background: #087f8c;
+    color: white;
+    cursor: pointer;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div id="map"></div>
+
+<div id="hud">
+    🌍 NOVACITY DIGITAL TWIN
+    <br>
+    <span id="status">Loading map...</span>
+</div>
+
+<button id="play">⏸ Pause</button>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+<script>
+
+const D = __DATA__;
+
+const status = document.getElementById("status");
+
+const playButton = document.getElementById("play");
+
+let playing = true;
+
+let lastTime = 0;
+
+let elapsed = 0;
+
+let vehicles = [];
+
+let map;
+
+function interpolate(route, progress) {
+
+    const coords = route.coordinates;
+
+    if (!coords || coords.length < 2) {
+        return null;
+    }
+
+    let lengths = [];
+
+    let total = 0;
+
+    for (let i = 0; i < coords.length - 1; i++) {
+
+        const a = coords[i];
+
+        const b = coords[i + 1];
+
+        const dx = (b[0] - a[0]) * 80000;
+
+        const dy = (b[1] - a[1]) * 111000;
+
+        const distance = Math.hypot(dx, dy);
+
+        lengths.push(distance);
+
+        total += distance;
+
+    }
+
+    if (total <= 0) {
+        return null;
+    }
+
+    let target = progress * total;
+
+    let walked = 0;
+
+    for (let i = 0; i < lengths.length; i++) {
+
+        const distance = lengths[i];
+
+        if (walked + distance >= target) {
+
+            const ratio = (
+                target - walked
+            ) / Math.max(distance, 0.001);
+
+            const a = coords[i];
+
+            const b = coords[i + 1];
+
+            return [
+                a[0] + (b[0] - a[0]) * ratio,
+                a[1] + (b[1] - a[1]) * ratio
+            ];
+
+        }
+
+        walked += distance;
+
+    }
+
+    return coords[coords.length - 1];
+
+}
+
+
+// Offset vehicles slightly to simulate separate lanes.
+
+function laneOffset(point, route, lane) {
+
+    const coords = route.coordinates;
+
+    const index = Math.min(
+        1,
+        coords.length - 1
+    );
+
+    const a = coords[index - 1];
+
+    const b = coords[index];
+
+    const dx = (b[0] - a[0]) * 80000;
+
+    const dy = (b[1] - a[1]) * 111000;
+
+    const length = Math.max(
+        Math.hypot(dx, dy),
+        0.001
+    );
+
+    const offset = lane * 2.2;
+
+    const perpendicularX = -dy / length;
+
+    const perpendicularY = dx / length;
+
+    return [
+        point[0] + perpendicularX * offset / 80000,
+        point[1] + perpendicularY * offset / 111000
+    ];
+
+}
+
+
+// Prevent overlapping visible vehicles in screen space.
+
+function separateVehicles(features) {
+
+    const accepted = [];
+
+    const occupied = [];
+
+    for (const feature of features) {
+
+        const pixel = map.project(
+            feature.geometry.coordinates
+        );
+
+        let clear = true;
+
+        for (const other of occupied) {
+
+            const distance = Math.hypot(
+                pixel.x - other.x,
+                pixel.y - other.y
+            );
+
+            if (distance < 11) {
+
+                clear = false;
+
+                break;
+
+            }
+
+        }
+
+        if (clear) {
+
+            accepted.push(feature);
+
+            occupied.push(pixel);
+
+        }
+
+    }
+
+    return accepted;
+
+}
+
+
+function initialize() {
+
+    map = new maplibregl.Map({
+
+        container: "map",
+
+        style: "https://tiles.openfreemap.org/styles/liberty",
+
+        center: D.center,
+
+        zoom: 15,
+
+        pitch: 58,
+
+        bearing: -15,
+
+        antialias: true
+
+    });
+
+    map.addControl(
+        new maplibregl.NavigationControl({
+            visualizePitch: true
+        }),
+        "top-right"
+    );
+
+    map.addControl(
+        new maplibregl.FullscreenControl(),
+        "top-right"
+    );
+
+    map.on("load", function() {
+
+        map.addSource("roads", {
+            type: "geojson",
+            data: D.roads
+        });
+
+        map.addLayer({
+
+            id: "roads-layer",
+
+            type: "line",
+
+            source: "roads",
+
+            paint: {
+
+                "line-color": [
+
+                    "match",
+
+                    ["get", "highway"],
+
+                    "motorway", "#f4a34e",
+
+                    "primary", "#e9c66c",
+
+                    "secondary", "#91b7d5",
+
+                    "#647e94"
+
+                ],
+
+                "line-width": [
+
+                    "interpolate",
+
+                    ["linear"],
+
+                    ["zoom"],
+
+                    12, 1,
+
+                    17, 4
+
+                ]
+
+            }
+
+        });
+
+
+        if (D.buildings.features.length > 0) {
+
+            map.addSource("buildings", {
+
+                type: "geojson",
+
+                data: D.buildings
+
+            });
+
+            map.addLayer({
+
+                id: "buildings-3d",
+
+                type: "fill-extrusion",
+
+                source: "buildings",
+
+                paint: {
+
+                    "fill-extrusion-color": "#456985",
+
+                    "fill-extrusion-height": [
+                        "get",
+                        "height"
+                    ],
+
+                    "fill-extrusion-opacity": 0.82
+
+                }
+
+            });
+
+        }
+
+
+        map.addSource("vehicles", {
+
+            type: "geojson",
+
+            data: {
+                type: "FeatureCollection",
+                features: []
+            }
+
+        });
+
+
+        map.addLayer({
+
+            id: "vehicles-layer",
+
+            type: "circle",
+
+            source: "vehicles",
+
+            paint: {
+
+                "circle-radius": [
+
+                    "match",
+
+                    ["get", "kind"],
+
+                    "bus", 5,
+
+                    "emergency", 5,
+
+                    3.5
+
+                ],
+
+                "circle-color": [
+
+                    "match",
+
+                    ["get", "kind"],
+
+                    "bus", "#38bdf8",
+
+                    "delivery", "#fbbf24",
+
+                    "emergency", "#f43f5e",
+
+                    "#38e29a"
+
+                ],
+
+                "circle-stroke-color": "#071321",
+
+                "circle-stroke-width": 1.2
+
+            }
+
+        });
+
+
+        if (D.incident) {
+
+            map.addSource("incident", {
+
+                type: "geojson",
+
+                data: {
+
+                    type: "FeatureCollection",
+
+                    features: [D.incident]
+
+                }
+
+            });
+
+            map.addLayer({
+
+                id: "incident-layer",
+
+                type: "circle",
+
+                source: "incident",
+
+                paint: {
+
+                    "circle-radius": 11,
+
+                    "circle-color": "#ff4242",
+
+                    "circle-stroke-color": "#ffffff",
+
+                    "circle-stroke-width": 2
+
+                }
+
+            });
+
+        }
+
+
+        vehicles = D.vehicles.map(v => ({
+
+            ...v,
+
+            progress: v.progress,
+
+            speed: v.speed
+
+        }));
+
+
+        status.textContent =
+            D.place + " | " +
+            D.roads.features.length + " roads | " +
+            vehicles.length + " vehicles";
+
+
+        requestAnimationFrame(animate);
+
+    });
+
+}
+
+
+function animate(timestamp) {
+
+    requestAnimationFrame(animate);
+
+    if (!playing) {
+        lastTime = timestamp;
+        return;
+    }
+
+    if (!lastTime) {
+        lastTime = timestamp;
+        return;
+    }
+
+    const delta = Math.min(
+        (timestamp - lastTime) / 1000,
+        0.05
+    );
+
+    lastTime = timestamp;
+
+    elapsed += delta;
+
+    const features = [];
+
+    for (const vehicle of vehicles) {
+
+        const route = D.routes[vehicle.route];
+
+        if (!route) continue;
+
+        const length = Math.max(
+            route.length,
+            50
+        );
+
+        // Approximate movement in metres per second.
+        const metresPerSecond =
+            vehicle.speed * 7.5;
+
+        vehicle.progress += (
+            metresPerSecond * delta / length
+        );
+
+        if (vehicle.progress >= 1) {
+            vehicle.progress = 0;
+        }
+
+        let point = interpolate(
+            route,
+            vehicle.progress
+        );
+
+        if (!point) continue;
+
+        point = laneOffset(
+            point,
+            route,
+            vehicle.lane
+        );
+
+        features.push({
+
+            type: "Feature",
+
+            geometry: {
+
+                type: "Point",
+
+                coordinates: point
+
+            },
+
+            properties: {
+
+                id: vehicle.id,
+
+                kind: vehicle.kind,
+
+                rerouted: vehicle.rerouted
+
+            }
+
+        });
+
+    }
+
+    const separated = separateVehicles(features);
+
+    map.getSource("vehicles").setData({
+
+        type: "FeatureCollection",
+
+        features: separated
+
+    });
+
+    if (Math.floor(elapsed) % 2 === 0) {
+
+        status.textContent =
+            D.place + " | " +
+            separated.length + " visible vehicles | LIVE SIMULATION";
+
+    }
+
+}
+
+
+playButton.onclick = function() {
+
+    playing = !playing;
+
+    this.textContent = playing
+        ? "⏸ Pause"
+        : "▶ Play";
+
+};
+
+
+initialize();
+
+</script>
+
+</body>
+</html>
+"""
+
+    # --------------------------------------------------------
+    # INJECT DATA
+    # --------------------------------------------------------
+
+    html = html.replace(
+        "__DATA__",
+        to_json(payload)
+    )
+
+    # --------------------------------------------------------
+    # DISPLAY MAP
+    # --------------------------------------------------------
+
+    components.html(
+        html,
+        height=760,
+        scrolling=False
+    )
+
+    st.caption(
+        "OpenStreetMap geographical data. "
+        "Vehicle movements and incidents are simulated."
+    )
+
+    st.stop()
 st.sidebar.divider()
 
 pages = [

@@ -1,0 +1,1 @@
+"""Geographical data and real-world map simulation."""

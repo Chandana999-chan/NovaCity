@@ -775,7 +775,43 @@ function createRoadSegment(road) {
 
 ROADS.forEach(createRoadSegment);
 
+/* =====================================================
+   CONNECT ROAD INTERSECTIONS
+   Fill the gaps where road segments meet.
+===================================================== */
 
+function createConnectedJunctions() {
+
+    const junctionMaterial = new THREE.MeshStandardMaterial({
+        color: 0x263746,
+        roughness: 0.9
+    });
+
+    NODES.forEach(node => {
+
+        const position = nodePosition(node);
+
+        // Connect the road surfaces at every junction.
+        const junction = new THREE.Mesh(
+            new THREE.CircleGeometry(4.0, 32),
+            junctionMaterial
+        );
+
+        junction.rotation.x = -Math.PI / 2;
+
+        junction.position.set(
+            position.x,
+            0.25,
+            position.z
+        );
+
+        junction.receiveShadow = true;
+
+        groups.roads.add(junction);
+    });
+}
+
+createConnectedJunctions();
 /* =====================================================
    JUNCTIONS AND CROSSWALKS
 ===================================================== */
@@ -790,14 +826,7 @@ function createJunctions() {
 
         const position = nodePosition(node);
 
-        const junction = new THREE.Mesh(
-            new THREE.CylinderGeometry(5.8, 5.8, 0.25, 32),
-            junctionMaterial
-        );
-
-        junction.position.set(position.x, 0.22, position.z);
-
-        groups.roads.add(junction);
+        
 
         // Crosswalk stripes.
         for (let i = -3; i <= 3; i++) {
